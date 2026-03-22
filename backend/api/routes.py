@@ -1,7 +1,9 @@
 import time
 import hashlib
+import re
 
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 
 from backend.api.schemas import AnalyzeRequest, AnalyzeResponse, HealthResponse
 from backend.analysis.statistical import analyze as statistical_analyze, split_sentences
@@ -59,3 +61,44 @@ async def health_check():
         status="healthy",
         model_loaded=is_model_loaded(),
     )
+
+
+# #16 — URL content extraction endpoint
+class FetchUrlRequest(BaseModel):
+    url: str
+
+
+class FetchUrlResponse(BaseModel):
+    text: str
+
+
+@router.post("/fetch-url", response_model=FetchUrlResponse)
+async def fetch_url_content(request: FetchUrlRequest):
+    import httpx
+
+    url = request.url.strip()
+    if not url.startswith(("http://", "https://")):
+        raise HTTPException(status_code=400, detail="رابط غير صالح")
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+            response = await client.get(url, headers={"User-Agent": "Mozilla/5.0"})
+            response.raise_for_status()
+            html = response.text
+
+        # Strip HTML tags and extract text
+        text = re.sub(r'<script[^>]*>.*?</script>', '', html, flags=re.DOTALL)
+        text = re.sub(r'<style[^>]*>.*?</style>', '', text, flags=re.DOTALL)
+        text = re.sub(r'<[^>]+>', ' ', text)
+        text = re.sub(r'\s+', ' ', text).strip()
+
+        if len(text) < 50:
+            raise HTTPException(status_code=400, detail="لم يتم العثور على نص كافٍ في هذا الرابط")
+
+        return FetchUrlResponse(text=text)
+    except httpx.HTTPError:
+        raise HTTPException(status_code=400, detail="تعذر الوصول إلى الرابط")
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=500, detail="حدث خطأ أثناء استخراج النص")

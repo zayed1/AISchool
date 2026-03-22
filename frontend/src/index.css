@@ -12,6 +12,11 @@ html {
   scroll-behavior: smooth;
 }
 
+/* Dark mode body */
+html.dark body {
+  background-color: #0f172a;
+}
+
 /* Hide scrollbar for nav */
 .scrollbar-hide {
   -ms-overflow-style: none;
@@ -19,4 +24,29 @@ html {
 }
 .scrollbar-hide::-webkit-scrollbar {
   display: none;
+}
+
+/* Focus visible for a11y */
+*:focus-visible {
+  outline: 2px solid #3b82f6;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Reduce motion for accessibility */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Print styles */
+@media print {
+  .sticky {
+    position: relative !important;
+  }
 }
