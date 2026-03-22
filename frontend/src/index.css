@@ -1,0 +1,108 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  font-family: 'IBM Plex Sans Arabic', 'Noto Sans Arabic', sans-serif;
+  direction: rtl;
+  background-color: #f8fafc;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+/* Dark mode body */
+html.dark body {
+  background-color: #0f172a;
+}
+
+/* Hide scrollbar for nav */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+/* Focus visible for a11y */
+*:focus-visible {
+  outline: 2px solid #3b82f6;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Reduce motion for accessibility */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* #2 — Toast slide-up animation */
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-slide-up {
+  animation: slide-up 0.3s ease-out;
+}
+
+/* #17 — Scale-in for onboarding modal */
+@keyframes scale-in {
+  from { opacity: 0; transform: scale(0.9); }
+  to { opacity: 1; transform: scale(1); }
+}
+.animate-scale-in {
+  animation: scale-in 0.3s ease-out;
+}
+
+/* #12 — Print styles */
+@media print {
+  .sticky, nav, .no-print {
+    display: none !important;
+  }
+
+  body {
+    background: white !important;
+    color: #1e293b !important;
+    font-size: 12pt;
+  }
+
+  .dark body {
+    background: white !important;
+    color: #1e293b !important;
+  }
+
+  * {
+    border-color: #e2e8f0 !important;
+    box-shadow: none !important;
+  }
+
+  .bg-white, [class*="bg-"] {
+    background: white !important;
+  }
+
+  [class*="dark:"] {
+    color: #1e293b !important;
+  }
+
+  .rounded-2xl, .rounded-xl {
+    border: 1px solid #e2e8f0 !important;
+  }
+
+  main {
+    max-width: 100% !important;
+    padding: 0 !important;
+  }
+
+  @page {
+    margin: 1.5cm;
+    size: A4;
+  }
+}
