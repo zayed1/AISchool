@@ -1,12 +1,18 @@
-import { useState, useCallback, useMemo } from 'react'
+import { useState, useCallback, useMemo, useRef } from 'react'
 import TextInput from '../components/TextInput'
 import ProgressSteps from '../components/ProgressSteps'
 import SkeletonReport from '../components/SkeletonReport'
 import HistoryPanel, { saveToHistory } from '../components/HistoryPanel'
+import PastePreview from '../components/PastePreview'
+import LanguageDetector from '../components/LanguageDetector'
+import SampleTexts from '../components/SampleTexts'
 import { analyzeTextSSE } from '../services/api'
 import { getCachedResult, setCachedResult } from '../utils/cache'
 import { useKeyboardShortcuts, useOnlineStatus } from '../hooks/useUtilities'
+import { useToast } from '../contexts/ToastContext'
 import { countWords } from '../utils/debounce'
+import { getRateLimitInfo, recordAnalysis, canAnalyze } from '../utils/rateLimit'
+import { isBot, isTooFast } from '../utils/honeypot'
 
 function Home({ onResult }) {
   const [text, setText] = useState('')
@@ -15,33 +21,52 @@ function Home({ onResult }) {
   const [step, setStep] = useState(null)
   const [urlInput, setUrlInput] = useState('')
   const [urlLoading, setUrlLoading] = useState(false)
+  const [honeypot, setHoneypot] = useState('')
   const isOnline = useOnlineStatus()
+  const { addToast } = useToast()
+  const pageLoadTime = useRef(Date.now())
 
   const wordCount = useMemo(() => countWords(text), [text])
   const canSubmit = wordCount >= 50 && wordCount <= 5000
+  const rateInfo = getRateLimitInfo()
 
   const handleSubmit = useCallback(async () => {
     if (!canSubmit || loading) return
+
+    // #16 — Spam protection
+    if (isBot(honeypot)) return
+    if (isTooFast(pageLoadTime.current, 2000)) {
+      addToast('يرجى الانتظار قليلاً قبل التحليل', 'warning')
+      return
+    }
+
+    // #13 — Rate limit check
+    if (!canAnalyze()) {
+      const info = getRateLimitInfo()
+      addToast(`تم تجاوز الحد الأقصى (${info.total} تحليل/ساعة). حاول بعد ${info.nextReset} دقيقة.`, 'warning', 5000)
+      return
+    }
+
     setLoading(true)
     setError('')
 
     try {
-      // #1 — Check cache first
+      // Check cache first
       const cached = await getCachedResult(text)
       if (cached) {
         cached._fromCache = true
+        addToast('تم تحميل النتيجة من الذاكرة المؤقتة', 'info')
         onResult(cached)
         setLoading(false)
         return
       }
 
-      // #8 — SSE-based progress
       const data = await analyzeTextSSE(text, setStep)
-      // #1 — Cache result
       await setCachedResult(text, data)
-      // Save to history
       saveToHistory(data, text)
+      recordAnalysis()
       setStep(null)
+      addToast('تم التحليل بنجاح!', 'success')
       onResult(data)
     } catch (err) {
       setStep(null)
@@ -51,34 +76,27 @@ function Home({ onResult }) {
       } else {
         setError(message || 'حدث خطأ أثناء التحليل. يرجى المحاولة مرة أخرى.')
       }
+      addToast('فشل التحليل', 'error')
     } finally {
       setLoading(false)
     }
-  }, [canSubmit, loading, text, onResult])
+  }, [canSubmit, loading, text, onResult, honeypot, addToast])
 
-  // #6 — Keyboard shortcuts
   const handlePasteAnalyze = useCallback(async () => {
     try {
       const clipText = await navigator.clipboard.readText()
       if (clipText) {
         setText(clipText)
-        // Auto-submit after paste if long enough
         const wc = countWords(clipText)
         if (wc >= 50 && wc <= 5000) {
-          setTimeout(() => {
-            document.querySelector('[data-submit-btn]')?.click()
-          }, 100)
+          setTimeout(() => document.querySelector('[data-submit-btn]')?.click(), 100)
         }
       }
     } catch {}
   }, [])
 
-  useKeyboardShortcuts({
-    onSubmit: handleSubmit,
-    onPasteAnalyze: handlePasteAnalyze,
-  })
+  useKeyboardShortcuts({ onSubmit: handleSubmit, onPasteAnalyze: handlePasteAnalyze })
 
-  // #16 — URL analysis
   const handleUrlAnalyze = async () => {
     if (!urlInput.trim()) return
     setUrlLoading(true)
@@ -88,6 +106,7 @@ function Home({ onResult }) {
       const extractedText = await fetchUrlContent(urlInput.trim())
       setText(extractedText)
       setUrlInput('')
+      addToast('تم استخراج النص من الرابط', 'success')
     } catch {
       setError('تعذر استخراج النص من الرابط. تأكد من صحة الرابط وحاول مرة أخرى.')
     } finally {
@@ -98,7 +117,7 @@ function Home({ onResult }) {
   const handleHistorySelect = (item) => onResult(item)
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <div className="text-center space-y-2">
         <h2 className="text-2xl sm:text-3xl font-bold text-slate-800 dark:text-slate-100">تحقق من النص</h2>
         <p className="text-slate-500 dark:text-slate-400 text-sm sm:text-base">الصق النص العربي المراد فحصه وسنحلله لك باستخدام الذكاء الاصطناعي والتحليل الإحصائي</p>
@@ -113,7 +132,13 @@ function Home({ onResult }) {
         <>
           <TextInput value={text} onChange={setText} wordCount={wordCount} />
 
-          {/* #16 — URL input */}
+          {/* #4 — Paste preview */}
+          <PastePreview text={text} />
+
+          {/* #8 — Language detection */}
+          <LanguageDetector text={text} />
+
+          {/* URL input */}
           <div className="flex gap-2">
             <input
               type="url"
@@ -138,6 +163,17 @@ function Home({ onResult }) {
             </button>
           </div>
 
+          {/* #16 — Honeypot (hidden from humans) */}
+          <input
+            type="text"
+            value={honeypot}
+            onChange={(e) => setHoneypot(e.target.value)}
+            tabIndex={-1}
+            autoComplete="off"
+            style={{ position: 'absolute', left: '-9999px', opacity: 0, height: 0 }}
+            aria-hidden="true"
+          />
+
           {error && (
             <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 rounded-lg p-3 text-sm flex items-center gap-2" role="alert">
               <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
@@ -153,15 +189,32 @@ function Home({ onResult }) {
             </div>
           )}
 
-          <button
-            data-submit-btn
-            onClick={handleSubmit}
-            disabled={!canSubmit || loading || !isOnline}
-            className="w-full py-4 bg-primary-600 hover:bg-primary-700 active:bg-primary-800 disabled:bg-slate-300 dark:disabled:bg-slate-700 disabled:cursor-not-allowed text-white text-lg font-semibold rounded-xl transition-all transform active:scale-[0.99]"
-            aria-label="بدء التحليل"
-          >
-            تحقق الآن
-          </button>
+          {/* Submit button with rate limit info */}
+          <div className="space-y-1.5">
+            <button
+              data-submit-btn
+              onClick={handleSubmit}
+              disabled={!canSubmit || loading || !isOnline || rateInfo.remaining <= 0}
+              className="w-full py-4 bg-primary-600 hover:bg-primary-700 active:bg-primary-800 disabled:bg-slate-300 dark:disabled:bg-slate-700 disabled:cursor-not-allowed text-white text-lg font-semibold rounded-xl transition-all transform active:scale-[0.99]"
+              aria-label="بدء التحليل"
+            >
+              تحقق الآن
+            </button>
+
+            {/* #13 — Rate limit indicator */}
+            <div className="flex items-center justify-center gap-2 text-xs text-slate-400 dark:text-slate-500">
+              <span>{rateInfo.remaining}/{rateInfo.total} تحليل متبقي</span>
+              {rateInfo.remaining < 5 && rateInfo.remaining > 0 && (
+                <span className="text-amber-500">({rateInfo.nextReset} دقيقة للتجديد)</span>
+              )}
+              {rateInfo.remaining <= 0 && (
+                <span className="text-red-500">حاول بعد {rateInfo.nextReset} دقيقة</span>
+              )}
+            </div>
+          </div>
+
+          {/* #19 — Sample texts */}
+          <SampleTexts onSelect={setText} />
 
           <HistoryPanel onSelect={handleHistorySelect} />
         </>
