@@ -18,10 +18,12 @@ const DiffTracker = lazy(() => import('./components/DiffTracker'))
 const BatchAnalysis = lazy(() => import('./components/BatchAnalysis'))
 const TeacherMode = lazy(() => import('./components/TeacherMode'))
 const AdminDashboard = lazy(() => import('./components/AdminDashboard'))
+const WordCounter = lazy(() => import('./components/WordCounter'))
+const TextTransformer = lazy(() => import('./components/TextTransformer'))
 
 function AppContent() {
   const [reportData, setReportData] = useState(null)
-  const [view, setView] = useState('home') // home|report|compare|howItWorks|apiDocs|diff|batch|teacher|admin
+  const [view, setView] = useState('home')
   const [showSettings, setShowSettings] = useState(false)
 
   useEffect(() => {
@@ -51,7 +53,6 @@ function AppContent() {
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
-  // Escape to go back
   useEffect(() => {
     const handleKey = (e) => {
       if (e.key === 'Escape') {
@@ -75,6 +76,8 @@ function AppContent() {
         onBatchOpen={() => switchView('batch')}
         onTeacherOpen={() => switchView('teacher')}
         onAdminOpen={() => switchView('admin')}
+        onWordCounterOpen={() => switchView('wordCounter')}
+        onTransformerOpen={() => switchView('transformer')}
         currentView={view}
       />
 
@@ -93,6 +96,8 @@ function AppContent() {
           : view === 'batch' ? <BatchAnalysis onClose={goHome} />
           : view === 'teacher' ? <TeacherMode onClose={goHome} />
           : view === 'admin' ? <AdminDashboard onClose={goHome} />
+          : view === 'wordCounter' ? <WordCounter onClose={goHome} />
+          : view === 'transformer' ? <TextTransformer onClose={goHome} />
           : view === 'report' && reportData ? <Report data={reportData} onBack={goHome} />
           : <Home onResult={handleResult} />}
         </Suspense>

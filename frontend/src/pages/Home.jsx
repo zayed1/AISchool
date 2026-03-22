@@ -13,6 +13,7 @@ import { useToast } from '../contexts/ToastContext'
 import { countWords } from '../utils/debounce'
 import { getRateLimitInfo, recordAnalysis, canAnalyze } from '../utils/rateLimit'
 import { isBot, isTooFast } from '../utils/honeypot'
+import FloatingToolbar from '../components/FloatingToolbar'
 
 function Home({ onResult }) {
   const [text, setText] = useState('')
@@ -217,6 +218,16 @@ function Home({ onResult }) {
           <SampleTexts onSelect={setText} />
 
           <HistoryPanel onSelect={handleHistorySelect} />
+
+          {/* Floating toolbar */}
+          <FloatingToolbar
+            onPaste={handlePasteAnalyze}
+            onClear={() => setText('')}
+            onSubmit={handleSubmit}
+            canSubmit={canSubmit && isOnline && rateInfo.remaining > 0}
+            hasText={wordCount > 0}
+            loading={false}
+          />
         </>
       )}
     </div>

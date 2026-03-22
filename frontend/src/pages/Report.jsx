@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, memo, lazy, Suspense } from 'react'
 import ResultCard from '../components/ResultCard'
 import IndicatorBar from '../components/IndicatorBar'
 import SentenceHighlight from '../components/SentenceHighlight'
@@ -11,12 +11,26 @@ import VerificationBadge from '../components/VerificationBadge'
 import QRCodeBadge from '../components/QRCodeBadge'
 import ModelDetection from '../components/ModelDetection'
 import StyleAnalysis from '../components/StyleAnalysis'
+import ConfidenceRing from '../components/ConfidenceRing'
+import AverageComparison from '../components/AverageComparison'
+import ExecutiveSummary from '../components/ExecutiveSummary'
+import RepetitionDetector from '../components/RepetitionDetector'
+import QuoteExtractor from '../components/QuoteExtractor'
+import WordFrequencyCloud from '../components/WordFrequencyCloud'
 import { exportReportAsPDF } from '../utils/pdfExport'
 import { exportReportAsPNG } from '../utils/pngExport'
 import { exportReportAsDOCX } from '../utils/docxExport'
 import { generateShareLink } from '../utils/share'
 import { launchConfetti } from '../utils/confetti'
 import { useToast } from '../contexts/ToastContext'
+
+const PresentationMode = lazy(() => import('../components/PresentationMode'))
+
+// Memoized heavy components
+const MemoRadarChart = memo(RadarChart)
+const MemoWordHeatmap = memo(WordHeatmap)
+const MemoParagraphAnalysis = memo(ParagraphAnalysis)
+const MemoSentenceHighlight = memo(SentenceHighlight)
 
 const indicatorLabels = {
   ttr: 'تنوع المفردات',
@@ -48,6 +62,7 @@ function Report({ data, onBack }) {
   const [copied, setCopied] = useState(false)
   const [activeSection, setActiveSection] = useState('section-result')
   const [showHeatmap, setShowHeatmap] = useState(false)
+  const [showPresentation, setShowPresentation] = useState(false)
   const { addToast } = useToast()
 
   useEffect(() => {
@@ -90,8 +105,24 @@ function Report({ data, onBack }) {
 
   const scrollTo = (id) => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 
-  // Reconstruct full text from sentences for style analysis
+  // F11 for presentation mode
+  useEffect(() => {
+    const handler = (e) => {
+      if (e.key === 'F11') { e.preventDefault(); setShowPresentation(true) }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [])
+
   const fullText = sentences?.map((s) => s.text).join('. ') || ''
+
+  if (showPresentation) {
+    return (
+      <Suspense fallback={null}>
+        <PresentationMode data={data} onExit={() => setShowPresentation(false)} />
+      </Suspense>
+    )
+  }
 
   return (
     <div className="space-y-6" role="main" aria-label="تقرير التحليل">
@@ -148,16 +179,23 @@ function Report({ data, onBack }) {
 
       <ScrollReveal delay={100}><div id="section-why"><WhyThisResult statistical={statistical} ml={ml} result={result} /></div></ScrollReveal>
 
-      {/* Model detection + ML result */}
+      {/* Executive summary */}
+      <ScrollReveal delay={80}>
+        <ExecutiveSummary result={result} statistical={statistical} ml={ml} metadata={metadata} />
+      </ScrollReveal>
+
+      {/* Model detection + confidence ring */}
       <ScrollReveal delay={120}>
         <div id="section-model" className="space-y-4">
           <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4 sm:p-6">
-            <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200 mb-2">نتيجة النموذج</h3>
-            <div className="flex items-center gap-4">
-              <span className={`text-sm font-semibold px-3 py-1 rounded-full ${ml.label.toUpperCase() === 'AI' ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' : 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'}`}>
-                {ml.label.toUpperCase() === 'AI' ? 'ذكاء اصطناعي' : 'بشري'}
-              </span>
-              <span className="text-slate-500 dark:text-slate-400 text-sm">الثقة: {Math.round(ml.confidence * 100)}%</span>
+            <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200 mb-3">نتيجة النموذج</h3>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <span className={`text-sm font-semibold px-3 py-1 rounded-full ${ml.label.toUpperCase() === 'AI' ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' : 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'}`}>
+                  {ml.label.toUpperCase() === 'AI' ? 'ذكاء اصطناعي' : 'بشري'}
+                </span>
+              </div>
+              <ConfidenceRing confidence={ml.confidence} label={ml.label} />
             </div>
           </div>
           <ModelDetection text={fullText} statistical={statistical} ml={ml} />
@@ -167,7 +205,10 @@ function Report({ data, onBack }) {
       {/* Style analysis */}
       <ScrollReveal delay={150}><div id="section-style"><StyleAnalysis text={fullText} statistical={statistical} /></div></ScrollReveal>
 
-      <ScrollReveal delay={200}><div id="section-radar"><RadarChart statistical={statistical} /></div></ScrollReveal>
+      {/* Average comparison */}
+      <ScrollReveal delay={180}><AverageComparison statistical={statistical} /></ScrollReveal>
+
+      <ScrollReveal delay={200}><div id="section-radar"><MemoRadarChart statistical={statistical} /></div></ScrollReveal>
 
       <ScrollReveal delay={250}>
         <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4 sm:p-6" id="section-indicators">
@@ -180,8 +221,11 @@ function Report({ data, onBack }) {
         </div>
       </ScrollReveal>
 
-      {sentences?.length > 0 && <ScrollReveal delay={300}><div id="section-paragraphs"><ParagraphAnalysis sentences={sentences} /></div></ScrollReveal>}
-      {sentences?.length > 0 && <ScrollReveal delay={350}><div id="section-sentences"><SentenceHighlight sentences={sentences} /></div></ScrollReveal>}
+      {sentences?.length > 0 && <ScrollReveal delay={300}><div id="section-paragraphs"><MemoParagraphAnalysis sentences={sentences} /></div></ScrollReveal>}
+      {sentences?.length > 0 && <ScrollReveal delay={320}><RepetitionDetector sentences={sentences} /></ScrollReveal>}
+      {sentences?.length > 0 && <ScrollReveal delay={340}><QuoteExtractor sentences={sentences} /></ScrollReveal>}
+      {sentences?.length > 0 && <ScrollReveal delay={350}><div id="section-sentences"><MemoSentenceHighlight sentences={sentences} /></div></ScrollReveal>}
+      {sentences?.length > 0 && <ScrollReveal delay={370}><WordFrequencyCloud sentences={sentences} /></ScrollReveal>}
 
       {sentences?.length > 0 && (
         <ScrollReveal delay={400}>
@@ -189,7 +233,7 @@ function Report({ data, onBack }) {
             <svg className={`w-4 h-4 transition-transform ${showHeatmap ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
             {showHeatmap ? 'إخفاء' : 'عرض'} خريطة الكلمات الحرارية التفاعلية
           </button>
-          {showHeatmap && <WordHeatmap sentences={sentences} />}
+          {showHeatmap && <MemoWordHeatmap sentences={sentences} />}
         </ScrollReveal>
       )}
 
@@ -197,6 +241,10 @@ function Report({ data, onBack }) {
         <div className="flex flex-wrap gap-3 justify-center no-print">
           <VerificationBadge result={result} />
           <QRCodeBadge data={data} />
+          <button onClick={() => setShowPresentation(true)} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-50 dark:bg-slate-700/50 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-600 transition-colors text-sm text-slate-600 dark:text-slate-300" title="وضع العرض (F11)">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" /></svg>
+            عرض تقديمي
+          </button>
         </div>
       </ScrollReveal>
 
