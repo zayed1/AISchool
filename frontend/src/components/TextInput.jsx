@@ -54,8 +54,30 @@ function TextInput({ value, onChange, wordCount }) {
       }
       reader.readAsArrayBuffer(file)
     } else if (file.type === 'application/pdf' || file.name.endsWith('.pdf')) {
-      // For PDFs, suggest copy-paste since client-side PDF parsing is heavy
-      onChange('تعذر قراءة ملف PDF مباشرة. يرجى نسخ النص من الملف ولصقه هنا.')
+      // #5 — Enhanced PDF reading with pdf.js
+      const reader = new FileReader()
+      reader.onload = async (event) => {
+        try {
+          const pdfjsLib = await import('pdfjs-dist/build/pdf.min.mjs')
+          pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`
+          const pdf = await pdfjsLib.getDocument({ data: event.target.result }).promise
+          const pages = []
+          for (let i = 1; i <= Math.min(pdf.numPages, 50); i++) {
+            const page = await pdf.getPage(i)
+            const content = await page.getTextContent()
+            pages.push(content.items.map((item) => item.str).join(' '))
+          }
+          const text = pages.join('\n\n').trim()
+          if (text.length < 20) {
+            onChange('تعذر استخراج النص من PDF — قد يكون الملف عبارة عن صور. يرجى نسخ النص يدوياً.')
+          } else {
+            onChange(text)
+          }
+        } catch {
+          onChange('تعذر قراءة ملف PDF. يرجى نسخ النص من الملف ولصقه هنا.')
+        }
+      }
+      reader.readAsArrayBuffer(file)
     } else {
       onChange('صيغة الملف غير مدعومة. الصيغ المدعومة: .txt، .docx')
     }

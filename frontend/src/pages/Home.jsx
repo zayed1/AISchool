@@ -15,6 +15,7 @@ import { countWords } from '../utils/debounce'
 import { getRateLimitInfo, recordAnalysis, canAnalyze } from '../utils/rateLimit'
 import { isBot, isTooFast } from '../utils/honeypot'
 import { cleanTextForAnalysis, smartPasteClean } from '../utils/textCleaner'
+import { requestNotificationPermission, sendAnalysisNotification } from '../utils/notifications'
 
 function Home({ onResult }) {
   // #7 — Restore draft from sessionStorage
@@ -35,6 +36,9 @@ function Home({ onResult }) {
   const isOnline = useOnlineStatus()
   const { addToast } = useToast()
   const pageLoadTime = useRef(Date.now())
+
+  // #8 — Request notification permission
+  useEffect(() => { requestNotificationPermission() }, [])
 
   // #7 — Auto-save draft
   useEffect(() => {
@@ -109,6 +113,8 @@ function Home({ onResult }) {
       // Clear draft after successful analysis
       sessionStorage.removeItem('draft_text')
       addToast('تم التحليل بنجاح!', 'success')
+      // #8 — Browser notification if tab is in background
+      sendAnalysisNotification(data.result)
       onResult(data)
     } catch (err) {
       setStep(null)

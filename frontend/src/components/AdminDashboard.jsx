@@ -1,5 +1,6 @@
 // Admin Dashboard — platform overview and management
 import { useState, useEffect, useMemo } from 'react'
+import ApiRateDashboard from './ApiRateDashboard'
 
 // Simulated admin data from localStorage scans
 function getAdminData() {
@@ -77,11 +78,12 @@ function AdminDashboard({ onClose }) {
 
   const fetchServerStats = async () => {
     try {
-      const [healthRes, statsRes] = await Promise.all([
+      const [healthRes, statsRes, emailRes] = await Promise.all([
         fetch('/api/health').then((r) => r.json()).catch(() => null),
         fetch('/api/admin/stats').then((r) => r.json()).catch(() => null),
+        fetch('/api/admin/email-status').then((r) => r.json()).catch(() => null),
       ])
-      setServerStats({ health: healthRes, stats: statsRes })
+      setServerStats({ health: healthRes, stats: statsRes, emailStatus: emailRes })
 
       // #19 — Threshold alert: check if >60% of recent scans are AI
       if (statsRes?.ai_count && statsRes?.total_scans) {
@@ -245,6 +247,30 @@ function AdminDashboard({ onClose }) {
               <p className="text-xs text-red-600 dark:text-red-400">أكثر من 60% من التحليلات الأخيرة صُنّفت كنصوص AI</p>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* #22 — API Rate Dashboard */}
+      <ApiRateDashboard />
+
+      {/* #24 — Email alerts status */}
+      {serverStats?.emailStatus && (
+        <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-bold text-slate-700 dark:text-slate-300 flex items-center gap-2">
+              <svg className="w-4 h-4 text-primary-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
+              تنبيهات بريدية
+            </h3>
+            <span className={`text-xs font-bold ${serverStats.emailStatus.configured ? 'text-green-500' : 'text-slate-400'}`}>
+              {serverStats.emailStatus.configured ? 'مفعّلة' : 'غير مُعدّة'}
+            </span>
+          </div>
+          {serverStats.emailStatus.configured && (
+            <p className="text-[10px] text-slate-400 mt-1">البريد: {serverStats.emailStatus.admin_email}</p>
+          )}
+          {!serverStats.emailStatus.configured && (
+            <p className="text-[10px] text-slate-400 mt-1">أضف SMTP_HOST, SMTP_USER, SMTP_PASS, ADMIN_EMAIL في .env</p>
+          )}
         </div>
       )}
 

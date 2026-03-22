@@ -13,6 +13,7 @@ from backend.analysis.statistical import analyze as statistical_analyze, split_s
 from backend.analysis.ml_model import predict, predict_sentences, is_model_loaded
 from backend.analysis.combiner import combine_scores
 from backend.db.supabase_client import save_scan, get_client
+from backend.utils.email_alerts import send_threshold_alert, is_email_configured
 
 router = APIRouter(prefix="/api")
 
@@ -273,6 +274,10 @@ async def admin_stats():
             for s in scans[:10]
         ]
 
+        # #24 — Trigger email alert if >60% are AI
+        if total >= 5 and ai_count / total > 0.6:
+            send_threshold_alert(ai_count, total, avg_score)
+
         return AdminStatsResponse(
             total_scans=total,
             avg_score=round(avg_score, 2),
@@ -297,6 +302,29 @@ async def admin_export():
         return {"data": result.data or [], "count": len(result.data or [])}
     except Exception:
         raise HTTPException(status_code=500, detail="فشل في تصدير البيانات")
+
+
+# #24 — Email alert configuration status + manual trigger
+class EmailConfigResponse(BaseModel):
+    configured: bool
+    admin_email: str = ""
+
+
+@router.get("/admin/email-status", response_model=EmailConfigResponse)
+async def email_status():
+    import os
+    return EmailConfigResponse(
+        configured=is_email_configured(),
+        admin_email=os.getenv("ADMIN_EMAIL", "")[:3] + "***" if os.getenv("ADMIN_EMAIL") else "",
+    )
+
+
+@router.post("/admin/test-email")
+async def test_email():
+    if not is_email_configured():
+        raise HTTPException(status_code=400, detail="البريد الإلكتروني غير مُعدّ")
+    send_threshold_alert(ai_count=5, total_count=10, avg_score=0.72)
+    return {"message": "تم إرسال بريد تجريبي"}
 
 
 # URL content extraction endpoint

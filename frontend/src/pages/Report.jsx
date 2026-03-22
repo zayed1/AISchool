@@ -21,6 +21,12 @@ import MixedTextDetector from '../components/MixedTextDetector'
 import ReliabilityMeter from '../components/ReliabilityMeter'
 import Recommendations from '../components/Recommendations'
 import AnalysisTimeline from '../components/AnalysisTimeline'
+import ParagraphHeatmap from '../components/ParagraphHeatmap'
+import TemplateDetector from '../components/TemplateDetector'
+import CreativityScore from '../components/CreativityScore'
+import UserFeedback from '../components/UserFeedback'
+import EmbedBadge from '../components/EmbedBadge'
+import CompareShare from '../components/CompareShare'
 import { exportReportAsPDF } from '../utils/pdfExport'
 import { exportReportAsPNG } from '../utils/pngExport'
 import { exportReportAsDOCX } from '../utils/docxExport'
@@ -216,6 +222,9 @@ function Report({ data, onBack }) {
         </div>
       </ScrollReveal>
 
+      {/* #4 — Creativity score */}
+      <ScrollReveal delay={140}><CreativityScore statistical={statistical} sentences={sentences} /></ScrollReveal>
+
       {/* Style analysis */}
       <ScrollReveal delay={150}><div id="section-style"><StyleAnalysis text={fullText} statistical={statistical} /></div></ScrollReveal>
 
@@ -236,6 +245,10 @@ function Report({ data, onBack }) {
       </ScrollReveal>
 
       {sentences?.length > 0 && <ScrollReveal delay={300}><div id="section-paragraphs"><MemoParagraphAnalysis sentences={sentences} /></div></ScrollReveal>}
+      {/* #1 — Paragraph heatmap */}
+      {sentences?.length > 0 && <ScrollReveal delay={310}><ParagraphHeatmap sentences={sentences} /></ScrollReveal>}
+      {/* #3 — Template detector */}
+      {sentences?.length > 0 && <ScrollReveal delay={315}><TemplateDetector sentences={sentences} /></ScrollReveal>}
       {sentences?.length > 0 && <ScrollReveal delay={320}><RepetitionDetector sentences={sentences} /></ScrollReveal>}
       {sentences?.length > 0 && <ScrollReveal delay={340}><QuoteExtractor sentences={sentences} /></ScrollReveal>}
       {sentences?.length > 0 && <ScrollReveal delay={350}><div id="section-sentences"><MemoSentenceHighlight sentences={sentences} /></div></ScrollReveal>}
@@ -265,8 +278,17 @@ function Report({ data, onBack }) {
       {/* #10 — Recommendations */}
       <ScrollReveal delay={470}><Recommendations result={result} statistical={statistical} metadata={metadata} /></ScrollReveal>
 
+      {/* #7 — User feedback */}
+      <ScrollReveal delay={475}><UserFeedback resultScore={result.percentage} /></ScrollReveal>
+
+      {/* #12 — Embed badge */}
+      <ScrollReveal delay={478}><EmbedBadge result={result} /></ScrollReveal>
+
+      {/* #10 — Compare share */}
+      <ScrollReveal delay={480}><CompareShare /></ScrollReveal>
+
       {/* #11 — Analysis timeline */}
-      <ScrollReveal delay={480}><AnalysisTimeline /></ScrollReveal>
+      <ScrollReveal delay={485}><AnalysisTimeline /></ScrollReveal>
 
       <ScrollReveal delay={500}>
         <div className="bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700 p-4 text-sm text-slate-500 dark:text-slate-400 leading-relaxed" role="note">
