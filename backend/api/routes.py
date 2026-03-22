@@ -1,8 +1,10 @@
 import time
+import json
 import hashlib
 import re
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from backend.api.schemas import AnalyzeRequest, AnalyzeResponse, HealthResponse
@@ -52,6 +54,74 @@ async def analyze_text(request: AnalyzeRequest):
             "sentence_count": len(sentences),
             "analysis_time_ms": elapsed_ms,
         },
+    )
+
+
+# SSE streaming analysis endpoint
+@router.post("/analyze-stream")
+async def analyze_text_stream(request: AnalyzeRequest):
+    """Streaming analysis with real-time progress via Server-Sent Events."""
+    import asyncio
+
+    text = request.text.strip()
+    words = text.split()
+
+    async def event_stream():
+        start_time = time.time()
+
+        # Step 1: Statistical analysis
+        yield f"data: {json.dumps({'step': 'statistical', 'message': 'جارٍ التحليل الإحصائي...'})}\n\n"
+        stat_result = statistical_analyze(text)
+        await asyncio.sleep(0.1)
+
+        # Step 2: ML prediction
+        yield f"data: {json.dumps({'step': 'ml', 'message': 'جارٍ تحليل النموذج...'})}\n\n"
+        ml_result = predict(text)
+        await asyncio.sleep(0.1)
+
+        # Step 3: Sentence analysis
+        yield f"data: {json.dumps({'step': 'sentences', 'message': 'جارٍ تحليل الجمل...'})}\n\n"
+        sentences = split_sentences(text)
+        sentence_results = predict_sentences(sentences)
+        await asyncio.sleep(0.1)
+
+        # Step 4: Combine
+        yield f"data: {json.dumps({'step': 'combining', 'message': 'جارٍ دمج النتائج...'})}\n\n"
+        combined = combine_scores(stat_result["statistical_score"], ml_result["ml_score"])
+
+        elapsed_ms = int((time.time() - start_time) * 1000)
+
+        text_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
+        try:
+            save_scan(
+                text_hash=text_hash,
+                word_count=len(words),
+                final_score=combined["final_score"],
+                statistical_score=stat_result["statistical_score"],
+                ml_score=ml_result["ml_score"],
+            )
+        except Exception:
+            pass
+
+        # Final result
+        final_data = {
+            "step": "done",
+            "result": combined,
+            "statistical": stat_result,
+            "ml": ml_result,
+            "sentences": sentence_results,
+            "metadata": {
+                "word_count": len(words),
+                "sentence_count": len(sentences),
+                "analysis_time_ms": elapsed_ms,
+            },
+        }
+        yield f"data: {json.dumps(final_data)}\n\n"
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
 
 

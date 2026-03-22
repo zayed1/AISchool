@@ -4,19 +4,15 @@ const API_URL = import.meta.env.VITE_API_URL || ''
 
 const client = axios.create({
   baseURL: API_URL,
-  headers: {
-    'Content-Type': 'application/json',
-  },
+  headers: { 'Content-Type': 'application/json' },
 })
 
-// #18 — Retry with exponential backoff
 async function withRetry(fn, retries = 2) {
   for (let i = 0; i <= retries; i++) {
     try {
       return await fn()
     } catch (err) {
       if (i === retries) throw err
-      // Only retry on network errors, not on 4xx
       if (err.response && err.response.status < 500) throw err
       await new Promise((resolve) => setTimeout(resolve, 1000 * (i + 1)))
     }
@@ -25,39 +21,86 @@ async function withRetry(fn, retries = 2) {
 
 export async function analyzeText(text) {
   return withRetry(async () => {
-    const response = await client.post('/api/analyze', {
-      text,
-      detailed: true,
-    })
+    const response = await client.post('/api/analyze', { text, detailed: true })
     return response.data
   })
 }
 
-// #8 — SSE-based analysis with progress
+// Real SSE streaming analysis
 export function analyzeTextSSE(text, onProgress) {
-  // Falls back to regular POST since backend needs SSE endpoint
-  // But simulates progress for now
-  return new Promise(async (resolve, reject) => {
+  return new Promise((resolve, reject) => {
     onProgress?.('statistical')
 
-    const timer1 = setTimeout(() => onProgress?.('ml'), 600)
-    const timer2 = setTimeout(() => onProgress?.('combining'), 1500)
+    // Try real SSE endpoint first
+    const controller = new AbortController()
+    fetch(`${API_URL}/api/analyze-stream`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, detailed: true }),
+      signal: controller.signal,
+    }).then(async (response) => {
+      if (!response.ok || !response.body) {
+        // Fallback to regular POST with simulated progress
+        throw new Error('SSE not available')
+      }
 
-    try {
-      const data = await analyzeText(text)
-      clearTimeout(timer1)
-      clearTimeout(timer2)
-      onProgress?.('done')
-      resolve(data)
-    } catch (err) {
-      clearTimeout(timer1)
-      clearTimeout(timer2)
-      reject(err)
-    }
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() || ''
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6))
+              if (data.step === 'done') {
+                onProgress?.('done')
+                resolve({
+                  result: data.result,
+                  statistical: data.statistical,
+                  ml: data.ml,
+                  sentences: data.sentences,
+                  metadata: data.metadata,
+                })
+                return
+              }
+              onProgress?.(data.step)
+            } catch {}
+          }
+        }
+      }
+
+      // If we got here without a done event, fallback
+      throw new Error('Stream ended without result')
+    }).catch(async () => {
+      // Fallback: regular POST with simulated progress
+      controller.abort()
+      onProgress?.('statistical')
+      const timer1 = setTimeout(() => onProgress?.('ml'), 600)
+      const timer2 = setTimeout(() => onProgress?.('combining'), 1500)
+
+      try {
+        const data = await analyzeText(text)
+        clearTimeout(timer1)
+        clearTimeout(timer2)
+        onProgress?.('done')
+        resolve(data)
+      } catch (err) {
+        clearTimeout(timer1)
+        clearTimeout(timer2)
+        reject(err)
+      }
+    })
   })
 }
 
-// #16 — Fetch URL content via backend proxy
 export async function fetchUrlContent(url) {
   const response = await client.post('/api/fetch-url', { url })
   return response.data.text

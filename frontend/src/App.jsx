@@ -13,36 +13,42 @@ const Report = lazy(() => import('./pages/Report'))
 const CompareView = lazy(() => import('./components/CompareView'))
 const HowItWorks = lazy(() => import('./components/HowItWorks'))
 const SettingsPanel = lazy(() => import('./components/SettingsPanel'))
+const ApiDocs = lazy(() => import('./components/ApiDocs'))
+const DiffTracker = lazy(() => import('./components/DiffTracker'))
+const BatchAnalysis = lazy(() => import('./components/BatchAnalysis'))
+const TeacherMode = lazy(() => import('./components/TeacherMode'))
+const AdminDashboard = lazy(() => import('./components/AdminDashboard'))
 
 function AppContent() {
   const [reportData, setReportData] = useState(null)
-  const [compareMode, setCompareMode] = useState(false)
-  const [showHowItWorks, setShowHowItWorks] = useState(false)
+  const [view, setView] = useState('home') // home|report|compare|howItWorks|apiDocs|diff|batch|teacher|admin
   const [showSettings, setShowSettings] = useState(false)
 
-  // Check for shared link on mount
   useEffect(() => {
     const shared = parseShareLink()
     if (shared) {
       setReportData(shared)
+      setView('report')
       window.history.replaceState({}, '', window.location.pathname)
     }
   }, [])
 
   const handleResult = (data) => {
     setReportData(data)
+    setView('report')
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
-  const handleBack = () => {
+  const goHome = () => {
     setReportData(null)
+    setView('home')
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
-  const handleCompareToggle = () => {
-    setCompareMode(!compareMode)
+  const switchView = (v) => {
     setReportData(null)
-    setShowHowItWorks(false)
+    setView(v)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
   // Escape to go back
@@ -50,28 +56,26 @@ function AppContent() {
     const handleKey = (e) => {
       if (e.key === 'Escape') {
         if (showSettings) { setShowSettings(false); return }
-        if (showHowItWorks) { setShowHowItWorks(false); return }
-        if (reportData) { handleBack(); return }
-        if (compareMode) { setCompareMode(false); return }
+        if (view !== 'home') { goHome(); return }
       }
     }
     window.addEventListener('keydown', handleKey)
     return () => window.removeEventListener('keydown', handleKey)
-  }, [reportData, compareMode, showHowItWorks, showSettings])
-
-  // Determine current view
-  let currentView = 'home'
-  if (compareMode) currentView = 'compare'
-  else if (showHowItWorks) currentView = 'howItWorks'
-  else if (reportData) currentView = 'report'
+  }, [view, showSettings])
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-900 transition-colors">
       <Header
-        onCompareToggle={handleCompareToggle}
-        isCompareMode={compareMode}
+        onCompareToggle={() => switchView(view === 'compare' ? 'home' : 'compare')}
+        isCompareMode={view === 'compare'}
         onSettingsOpen={() => setShowSettings(true)}
-        onHowItWorksOpen={() => { setShowHowItWorks(true); setCompareMode(false); setReportData(null) }}
+        onHowItWorksOpen={() => switchView('howItWorks')}
+        onApiDocsOpen={() => switchView('apiDocs')}
+        onDiffOpen={() => switchView('diff')}
+        onBatchOpen={() => switchView('batch')}
+        onTeacherOpen={() => switchView('teacher')}
+        onAdminOpen={() => switchView('admin')}
+        currentView={view}
       />
 
       <main className="container mx-auto px-4 py-6 sm:py-8 max-w-4xl" dir="rtl">
@@ -82,26 +86,23 @@ function AppContent() {
             <SkeletonReport />
           </div>
         }>
-          {currentView === 'howItWorks' ? (
-            <HowItWorks onClose={() => setShowHowItWorks(false)} />
-          ) : currentView === 'compare' ? (
-            <CompareView onBack={() => setCompareMode(false)} />
-          ) : currentView === 'report' ? (
-            <Report data={reportData} onBack={handleBack} />
-          ) : (
-            <Home onResult={handleResult} />
-          )}
+          {view === 'howItWorks' ? <HowItWorks onClose={goHome} />
+          : view === 'compare' ? <CompareView onBack={goHome} />
+          : view === 'apiDocs' ? <ApiDocs onClose={goHome} />
+          : view === 'diff' ? <DiffTracker onClose={goHome} />
+          : view === 'batch' ? <BatchAnalysis onClose={goHome} />
+          : view === 'teacher' ? <TeacherMode onClose={goHome} />
+          : view === 'admin' ? <AdminDashboard onClose={goHome} />
+          : view === 'report' && reportData ? <Report data={reportData} onBack={goHome} />
+          : <Home onResult={handleResult} />}
         </Suspense>
       </main>
 
-      {/* Settings panel */}
       <Suspense fallback={null}>
         <SettingsPanel isOpen={showSettings} onClose={() => setShowSettings(false)} />
       </Suspense>
 
       <OfflineBanner />
-
-      {/* #17 — Onboarding tour */}
       <OnboardingTour />
     </div>
   )
