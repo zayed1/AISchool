@@ -17,6 +17,10 @@ import ExecutiveSummary from '../components/ExecutiveSummary'
 import RepetitionDetector from '../components/RepetitionDetector'
 import QuoteExtractor from '../components/QuoteExtractor'
 import WordFrequencyCloud from '../components/WordFrequencyCloud'
+import MixedTextDetector from '../components/MixedTextDetector'
+import ReliabilityMeter from '../components/ReliabilityMeter'
+import Recommendations from '../components/Recommendations'
+import AnalysisTimeline from '../components/AnalysisTimeline'
 import { exportReportAsPDF } from '../utils/pdfExport'
 import { exportReportAsPNG } from '../utils/pngExport'
 import { exportReportAsDOCX } from '../utils/docxExport'
@@ -39,11 +43,15 @@ const indicatorLabels = {
   connector_density: 'كثافة أدوات الربط',
   error_ratio: 'نسبة الأخطاء',
   burstiness: 'الانفجارية',
+  opener_diversity: 'تنوع بدايات الجمل',
+  subordinate_ratio: 'نسبة الجمل الفرعية',
+  passive_ratio: 'نسبة المبني للمجهول',
 }
 
 const indicatorMaxValues = {
   ttr: 1, sentence_length_cv: 1, repetitive_openers_ratio: 0.5,
   connector_density: 4, error_ratio: 0.05, burstiness: 1,
+  opener_diversity: 1, subordinate_ratio: 0.5, passive_ratio: 0.1,
 }
 
 const sections = [
@@ -166,6 +174,12 @@ function Report({ data, onBack }) {
 
       <ScrollReveal><div id="section-result"><ResultCard result={result} /></div></ScrollReveal>
 
+      {/* #9 — Reliability + #3 Confidence interval */}
+      <ScrollReveal delay={30}><ReliabilityMeter reliability={metadata?.reliability} result={result} /></ScrollReveal>
+
+      {/* #4 — Mixed text detection */}
+      {sentences?.length > 0 && <ScrollReveal delay={40}><MixedTextDetector sentences={sentences} /></ScrollReveal>}
+
       <ScrollReveal delay={50}>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 text-center">
           {[{ label: 'عدد الكلمات', value: metadata.word_count },{ label: 'عدد الجمل', value: metadata.sentence_count },{ label: 'زمن التحليل', value: `${metadata.analysis_time_ms} مل‌ث` }].map((item) => (
@@ -247,6 +261,12 @@ function Report({ data, onBack }) {
           </button>
         </div>
       </ScrollReveal>
+
+      {/* #10 — Recommendations */}
+      <ScrollReveal delay={470}><Recommendations result={result} statistical={statistical} metadata={metadata} /></ScrollReveal>
+
+      {/* #11 — Analysis timeline */}
+      <ScrollReveal delay={480}><AnalysisTimeline /></ScrollReveal>
 
       <ScrollReveal delay={500}>
         <div className="bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700 p-4 text-sm text-slate-500 dark:text-slate-400 leading-relaxed" role="note">

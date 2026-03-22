@@ -13,6 +13,10 @@ class AnalyzeRequest(BaseModel):
         if not v:
             raise ValueError("النص مطلوب")
 
+        # #16 — Enforce 500KB max
+        if len(v.encode('utf-8')) > 500_000:
+            raise ValueError("حجم النص يتجاوز الحد الأقصى (500KB)")
+
         words = v.split()
         if len(words) < 50:
             raise ValueError("النص يجب أن يحتوي على 50 كلمة على الأقل")
@@ -40,6 +44,9 @@ class StatisticalResult(BaseModel):
     connector_density: float
     error_ratio: float
     burstiness: float
+    opener_diversity: float = 0.5
+    subordinate_ratio: float = 0.0
+    passive_ratio: float = 0.0
     statistical_score: float
 
 
@@ -54,6 +61,10 @@ class CombinedResult(BaseModel):
     percentage: int
     level: str
     color: str
+    confidence_low: int = 0
+    confidence_high: int = 100
+    ml_weight: float = 0.65
+    stat_weight: float = 0.35
 
 
 class AnalyzeResponse(BaseModel):
@@ -67,3 +78,7 @@ class AnalyzeResponse(BaseModel):
 class HealthResponse(BaseModel):
     status: str
     model_loaded: bool
+    uptime_seconds: float = 0
+    total_analyses: int = 0
+    avg_analysis_ms: float = 0
+    memory_mb: float = 0

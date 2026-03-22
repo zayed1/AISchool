@@ -64,15 +64,48 @@ function AdminDashboard({ onClose }) {
   const [authenticated, setAuthenticated] = useState(false)
 
   // Simple admin auth (demo — in production use proper auth)
+  const [serverStats, setServerStats] = useState(null)
+  const [thresholdAlert, setThresholdAlert] = useState(false)
+
   const handleLogin = () => {
-    // Default password for demo: 'admin123' — can be changed via env
     if (adminPass === 'admin123') {
       setAuthenticated(true)
       setData(getAdminData())
+      fetchServerStats()
     }
   }
 
-  const refreshData = () => setData(getAdminData())
+  const fetchServerStats = async () => {
+    try {
+      const [healthRes, statsRes] = await Promise.all([
+        fetch('/api/health').then((r) => r.json()).catch(() => null),
+        fetch('/api/admin/stats').then((r) => r.json()).catch(() => null),
+      ])
+      setServerStats({ health: healthRes, stats: statsRes })
+
+      // #19 — Threshold alert: check if >60% of recent scans are AI
+      if (statsRes?.ai_count && statsRes?.total_scans) {
+        const aiRatio = statsRes.ai_count / statsRes.total_scans
+        setThresholdAlert(aiRatio > 0.6 && statsRes.total_scans >= 5)
+      }
+    } catch {}
+  }
+
+  const handleServerExport = async () => {
+    try {
+      const res = await fetch('/api/admin/export')
+      const data = await res.json()
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = 'admin-export.json'
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch {}
+  }
+
+  const refreshData = () => { setData(getAdminData()); fetchServerStats() }
 
   const colorDot = { red: 'bg-red-400', orange: 'bg-orange-400', yellow: 'bg-yellow-400', lightgreen: 'bg-emerald-400', green: 'bg-green-400' }
   const colorLabel = { green: 'بشري', lightgreen: 'غالباً بشري', yellow: 'غير واضح', orange: 'مشبوه', red: 'AI مرجح' }
@@ -202,26 +235,55 @@ function AdminDashboard({ onClose }) {
         )}
       </div>
 
+      {/* #19 — Threshold alert */}
+      {thresholdAlert && (
+        <div className="bg-red-50 dark:bg-red-900/10 rounded-xl border border-red-200 dark:border-red-800 p-4">
+          <div className="flex items-center gap-2">
+            <svg className="w-5 h-5 text-red-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" /></svg>
+            <div>
+              <p className="text-sm font-bold text-red-700 dark:text-red-400">تنبيه: نسبة مرتفعة من النصوص المشبوهة</p>
+              <p className="text-xs text-red-600 dark:text-red-400">أكثر من 60% من التحليلات الأخيرة صُنّفت كنصوص AI</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* #17 — Server stats */}
+      {serverStats && (
+        <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4">
+          <h3 className="text-sm font-bold text-slate-700 dark:text-slate-300 mb-3">حالة الخادم</h3>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center text-xs">
+            {serverStats.health && (
+              <>
+                <div><p className="font-bold text-green-500">{serverStats.health.status}</p><p className="text-slate-400">الحالة</p></div>
+                <div><p className="font-bold text-slate-700 dark:text-slate-300">{Math.round(serverStats.health.uptime_seconds / 60)} د</p><p className="text-slate-400">وقت التشغيل</p></div>
+                <div><p className="font-bold text-slate-700 dark:text-slate-300">{serverStats.health.total_analyses}</p><p className="text-slate-400">تحليلات</p></div>
+                <div><p className="font-bold text-slate-700 dark:text-slate-300">{serverStats.health.memory_mb} MB</p><p className="text-slate-400">ذاكرة</p></div>
+              </>
+            )}
+          </div>
+          {serverStats.health?.avg_analysis_ms > 0 && (
+            <p className="text-[10px] text-slate-400 mt-2 text-center">متوسط وقت التحليل: {serverStats.health.avg_analysis_ms} مل‌ث</p>
+          )}
+        </div>
+      )}
+
       {/* Management actions */}
       <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4">
         <h3 className="text-sm font-bold text-slate-700 dark:text-slate-300 mb-3">إدارة</h3>
         <div className="space-y-2">
-          <button
-            onClick={() => {
-              localStorage.removeItem('analysis_history')
-              localStorage.removeItem('analysis_cache')
-              localStorage.removeItem('rate_limit')
-              refreshData()
-            }}
-            className="w-full py-2 text-sm text-red-500 hover:bg-red-50 dark:hover:bg-red-900/10 rounded-lg transition-colors text-right px-3"
-          >
-            مسح جميع البيانات
+          <button onClick={handleServerExport} className="w-full py-2 text-sm text-primary-500 hover:bg-primary-50 dark:hover:bg-primary-900/10 rounded-lg transition-colors text-right px-3 flex items-center gap-2">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+            تصدير بيانات الخادم (JSON)
           </button>
           <button
-            onClick={() => {
-              localStorage.removeItem('onboarding_completed')
-              refreshData()
-            }}
+            onClick={() => { localStorage.removeItem('analysis_history'); localStorage.removeItem('analysis_cache'); localStorage.removeItem('rate_limit'); refreshData() }}
+            className="w-full py-2 text-sm text-red-500 hover:bg-red-50 dark:hover:bg-red-900/10 rounded-lg transition-colors text-right px-3"
+          >
+            مسح جميع البيانات المحلية
+          </button>
+          <button
+            onClick={() => { localStorage.removeItem('onboarding_completed'); refreshData() }}
             className="w-full py-2 text-sm text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-900/10 rounded-lg transition-colors text-right px-3"
           >
             إعادة تعيين الجولة التعريفية
