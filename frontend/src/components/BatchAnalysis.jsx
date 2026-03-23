@@ -94,6 +94,32 @@ function BatchAnalysis({ onClose }) {
 
       {results.length === 0 ? (
         <>
+          {/* #11 — Welcome guide when no texts added */}
+          {texts.length === 0 && (
+            <div className="bg-gradient-to-br from-primary-50 to-blue-50 dark:from-primary-900/10 dark:to-blue-900/10 rounded-2xl border border-primary-200 dark:border-primary-800 p-6 text-center space-y-3">
+              <div className="w-14 h-14 mx-auto bg-primary-100 dark:bg-primary-900/30 rounded-2xl flex items-center justify-center">
+                <svg className="w-7 h-7 text-primary-600 dark:text-primary-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+                </svg>
+              </div>
+              <h3 className="text-base font-bold text-slate-700 dark:text-slate-200">تحليل دفعي سريع</h3>
+              <div className="grid grid-cols-3 gap-3 text-xs text-slate-500 dark:text-slate-400">
+                <div className="space-y-1">
+                  <div className="w-8 h-8 mx-auto bg-white dark:bg-slate-700 rounded-lg flex items-center justify-center text-lg">1</div>
+                  <p>أضف نصوصاً أو ارفع ملفات</p>
+                </div>
+                <div className="space-y-1">
+                  <div className="w-8 h-8 mx-auto bg-white dark:bg-slate-700 rounded-lg flex items-center justify-center text-lg">2</div>
+                  <p>اضغط "تحليل" لفحصها معاً</p>
+                </div>
+                <div className="space-y-1">
+                  <div className="w-8 h-8 mx-auto bg-white dark:bg-slate-700 rounded-lg flex items-center justify-center text-lg">3</div>
+                  <p>صدّر النتائج كملف CSV</p>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Input area */}
           <div className="space-y-3">
             {texts.map((item) => (
@@ -135,10 +161,15 @@ function BatchAnalysis({ onClose }) {
               className="w-full py-4 bg-primary-600 hover:bg-primary-700 disabled:bg-slate-300 text-white text-lg font-semibold rounded-xl transition-colors"
             >
               {loading ? (
-                <span className="flex items-center justify-center gap-2">
-                  <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
-                  جارٍ التحليل ({progress.current}/{progress.total})...
-                </span>
+                <div className="space-y-2 py-1">
+                  <div className="flex items-center justify-center gap-2">
+                    <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                    <span>جارٍ التحليل ({progress.current}/{progress.total})</span>
+                  </div>
+                  <div className="w-full h-2 bg-white/20 rounded-full overflow-hidden">
+                    <div className="h-full bg-white rounded-full transition-all duration-500" style={{ width: `${progress.total > 0 ? (progress.current / progress.total) * 100 : 0}%` }} />
+                  </div>
+                </div>
               ) : `تحليل ${texts.length} نصوص`}
             </button>
           )}

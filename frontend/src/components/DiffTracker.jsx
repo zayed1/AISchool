@@ -67,6 +67,23 @@ function DiffTracker({ onClose }) {
 
       <p className="text-slate-500 dark:text-slate-400 text-sm text-center">الصق النسخة الأصلية والمعدّلة لمعرفة أين تمت التغييرات</p>
 
+      {/* #12 — Example guide when both empty */}
+      {!textA && !textB && (
+        <div className="bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700 p-4">
+          <p className="text-xs font-bold text-slate-500 dark:text-slate-400 mb-2 text-center">مثال على المقارنة</p>
+          <div className="grid grid-cols-2 gap-3 text-xs text-slate-500 dark:text-slate-400">
+            <div className="bg-white dark:bg-slate-800 rounded-lg p-2.5 leading-relaxed border border-slate-100 dark:border-slate-700">
+              <span className="text-[10px] font-bold text-slate-400 block mb-1">الأصلي:</span>
+              الذكاء الاصطناعي <span className="bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 line-through px-0.5 rounded">يساعد</span> الطلاب في التعلم
+            </div>
+            <div className="bg-white dark:bg-slate-800 rounded-lg p-2.5 leading-relaxed border border-slate-100 dark:border-slate-700">
+              <span className="text-[10px] font-bold text-slate-400 block mb-1">المعدّل:</span>
+              الذكاء الاصطناعي <span className="bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400 underline px-0.5 rounded">يُمكّن</span> الطلاب في التعلم
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
           <label className="text-sm font-medium text-slate-600 dark:text-slate-400 mb-2 block">النسخة الأصلية</label>

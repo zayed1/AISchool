@@ -7,6 +7,23 @@ function TextInput({ value, onChange, wordCount }) {
   const [isDragging, setIsDragging] = useState(false)
   const [urlMode, setUrlMode] = useState(false)
   const fileInputRef = useRef(null)
+  const textareaRef = useRef(null)
+
+  // #18 — Auto-focus textarea on mount
+  useEffect(() => {
+    const timer = setTimeout(() => textareaRef.current?.focus(), 300)
+    return () => clearTimeout(timer)
+  }, [])
+
+  // #15 — Auto-expand textarea
+  useEffect(() => {
+    const el = textareaRef.current
+    if (el) {
+      el.style.height = 'auto'
+      const minH = window.innerWidth < 640 ? 200 : 256
+      el.style.height = Math.max(minH, el.scrollHeight) + 'px'
+    }
+  }, [value])
 
   // #6 — Drag & drop file support
   const handleDragOver = useCallback((e) => {
@@ -120,10 +137,11 @@ function TextInput({ value, onChange, wordCount }) {
         )}
 
         <textarea
+          ref={textareaRef}
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder="الصق النص هنا للتحقق... أو اسحب ملف (.txt، .docx)"
-          className="w-full min-h-[200px] sm:min-h-[256px] p-4 text-base sm:text-lg leading-relaxed border-2 border-slate-200 dark:border-slate-600 rounded-xl focus:border-primary-500 focus:ring-2 focus:ring-primary-200 dark:focus:ring-primary-800 outline-none resize-y transition-colors bg-white dark:bg-slate-800 dark:text-slate-100 dark:placeholder-slate-500"
+          className="w-full min-h-[200px] sm:min-h-[256px] p-4 text-base sm:text-lg leading-relaxed border-2 border-slate-200 dark:border-slate-600 rounded-xl focus:border-primary-500 focus:ring-2 focus:ring-primary-200 dark:focus:ring-primary-800 outline-none resize-none transition-colors bg-white dark:bg-slate-800 dark:text-slate-100 dark:placeholder-slate-500"
           dir="rtl"
           aria-label="أدخل النص العربي للتحليل"
           role="textbox"

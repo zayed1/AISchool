@@ -1,9 +1,12 @@
 import { useState, useEffect, memo, lazy, Suspense } from 'react'
 import ResultCard from '../components/ResultCard'
 import IndicatorBar from '../components/IndicatorBar'
-import SentenceHighlight from '../components/SentenceHighlight'
-import RadarChart from '../components/RadarChart'
-import WordHeatmap from '../components/WordHeatmap'
+import CollapsibleSection from '../components/CollapsibleSection'
+
+// #25 — Lazy load heavy components
+const SentenceHighlight = lazy(() => import('../components/SentenceHighlight'))
+const RadarChart = lazy(() => import('../components/RadarChart'))
+const WordHeatmap = lazy(() => import('../components/WordHeatmap'))
 import ScrollReveal from '../components/ScrollReveal'
 import WhyThisResult from '../components/WhyThisResult'
 import ParagraphAnalysis from '../components/ParagraphAnalysis'
@@ -16,12 +19,12 @@ import AverageComparison from '../components/AverageComparison'
 import ExecutiveSummary from '../components/ExecutiveSummary'
 import RepetitionDetector from '../components/RepetitionDetector'
 import QuoteExtractor from '../components/QuoteExtractor'
-import WordFrequencyCloud from '../components/WordFrequencyCloud'
+const WordFrequencyCloud = lazy(() => import('../components/WordFrequencyCloud'))
 import MixedTextDetector from '../components/MixedTextDetector'
 import ReliabilityMeter from '../components/ReliabilityMeter'
 import Recommendations from '../components/Recommendations'
 import AnalysisTimeline from '../components/AnalysisTimeline'
-import ParagraphHeatmap from '../components/ParagraphHeatmap'
+const ParagraphHeatmap = lazy(() => import('../components/ParagraphHeatmap'))
 import TemplateDetector from '../components/TemplateDetector'
 import CreativityScore from '../components/CreativityScore'
 import UserFeedback from '../components/UserFeedback'
@@ -39,11 +42,8 @@ import { useToast } from '../contexts/ToastContext'
 
 const PresentationMode = lazy(() => import('../components/PresentationMode'))
 
-// Memoized heavy components
-const MemoRadarChart = memo(RadarChart)
-const MemoWordHeatmap = memo(WordHeatmap)
 const MemoParagraphAnalysis = memo(ParagraphAnalysis)
-const MemoSentenceHighlight = memo(SentenceHighlight)
+const LazyFallback = <div className="h-24 bg-slate-100 dark:bg-slate-800 rounded-xl animate-pulse" />
 
 const indicatorLabels = {
   ttr: 'تنوع المفردات',
@@ -77,6 +77,7 @@ const sections = [
 function Report({ data, onBack }) {
   const { result, statistical, ml, sentences, metadata } = data
   const [copied, setCopied] = useState(false)
+  const [copyAnim, setCopyAnim] = useState(false)
   const [activeSection, setActiveSection] = useState('section-result')
   const [showHeatmap, setShowHeatmap] = useState(false)
   const [showPresentation, setShowPresentation] = useState(false)
@@ -108,7 +109,9 @@ function Report({ data, onBack }) {
     try {
       await navigator.clipboard.writeText(report)
       setCopied(true)
+      setCopyAnim(true)
       addToast('تم نسخ التقرير', 'success')
+      setTimeout(() => setCopyAnim(false), 600)
       setTimeout(() => setCopied(false), 2000)
     } catch {}
   }
@@ -202,7 +205,7 @@ function Report({ data, onBack }) {
             <button onClick={() => window.print()} className="p-1.5 rounded-full text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors focus:outline-none focus:ring-2 focus:ring-primary-500" aria-label="طباعة التقرير">
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" /></svg>
             </button>
-            <button onClick={handleCopy} className="p-1.5 rounded-full text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors focus:outline-none focus:ring-2 focus:ring-primary-500" aria-label="نسخ التقرير">
+            <button onClick={handleCopy} className={`p-1.5 rounded-full text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all focus:outline-none focus:ring-2 focus:ring-primary-500 ${copyAnim ? 'scale-125' : ''}`} aria-label="نسخ التقرير">
               {copied ? <svg className="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
               : <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>}
             </button>
@@ -272,28 +275,28 @@ function Report({ data, onBack }) {
       {/* Average comparison */}
       <ScrollReveal delay={180}><AverageComparison statistical={statistical} /></ScrollReveal>
 
-      <ScrollReveal delay={200}><div id="section-radar"><MemoRadarChart statistical={statistical} /></div></ScrollReveal>
+      <ScrollReveal delay={200}><div id="section-radar"><Suspense fallback={LazyFallback}><RadarChart statistical={statistical} /></Suspense></div></ScrollReveal>
 
+      {/* #16/#17 — Collapsible indicators section */}
       <ScrollReveal delay={250}>
-        <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4 sm:p-6" id="section-indicators">
-          <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200 mb-4">المؤشرات الإحصائية</h3>
+        <CollapsibleSection id="section-indicators" title="المؤشرات الإحصائية" primary>
           <div className="space-y-5">
             {Object.entries(indicatorLabels).map(([key, label]) => (
               <IndicatorBar key={key} label={label} value={statistical[key]} maxValue={indicatorMaxValues[key]} />
             ))}
           </div>
-        </div>
+        </CollapsibleSection>
       </ScrollReveal>
 
       {sentences?.length > 0 && <ScrollReveal delay={300}><div id="section-paragraphs"><MemoParagraphAnalysis sentences={sentences} /></div></ScrollReveal>}
       {/* #1 — Paragraph heatmap */}
-      {sentences?.length > 0 && <ScrollReveal delay={310}><ParagraphHeatmap sentences={sentences} /></ScrollReveal>}
+      {sentences?.length > 0 && <ScrollReveal delay={310}><Suspense fallback={LazyFallback}><ParagraphHeatmap sentences={sentences} /></Suspense></ScrollReveal>}
       {/* #3 — Template detector */}
       {sentences?.length > 0 && <ScrollReveal delay={315}><TemplateDetector sentences={sentences} /></ScrollReveal>}
       {sentences?.length > 0 && <ScrollReveal delay={320}><RepetitionDetector sentences={sentences} /></ScrollReveal>}
       {sentences?.length > 0 && <ScrollReveal delay={340}><QuoteExtractor sentences={sentences} /></ScrollReveal>}
-      {sentences?.length > 0 && <ScrollReveal delay={350}><div id="section-sentences"><MemoSentenceHighlight sentences={sentences} /></div></ScrollReveal>}
-      {sentences?.length > 0 && <ScrollReveal delay={370}><WordFrequencyCloud sentences={sentences} /></ScrollReveal>}
+      {sentences?.length > 0 && <ScrollReveal delay={350}><div id="section-sentences"><Suspense fallback={LazyFallback}><SentenceHighlight sentences={sentences} /></Suspense></div></ScrollReveal>}
+      {sentences?.length > 0 && <ScrollReveal delay={370}><Suspense fallback={LazyFallback}><WordFrequencyCloud sentences={sentences} /></Suspense></ScrollReveal>}
 
       {sentences?.length > 0 && (
         <ScrollReveal delay={400}>
@@ -301,7 +304,7 @@ function Report({ data, onBack }) {
             <svg className={`w-4 h-4 transition-transform ${showHeatmap ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
             {showHeatmap ? 'إخفاء' : 'عرض'} خريطة الكلمات الحرارية التفاعلية
           </button>
-          {showHeatmap && <MemoWordHeatmap sentences={sentences} />}
+          {showHeatmap && <Suspense fallback={LazyFallback}><WordHeatmap sentences={sentences} /></Suspense>}
         </ScrollReveal>
       )}
 

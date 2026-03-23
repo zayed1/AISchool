@@ -17,6 +17,7 @@ import { isBot, isTooFast } from '../utils/honeypot'
 import { cleanTextForAnalysis, smartPasteClean } from '../utils/textCleaner'
 import { requestNotificationPermission, sendAnalysisNotification } from '../utils/notifications'
 import { saveDraft, loadDraft, clearDraft } from '../utils/draftStorage'
+import ContextualTip from '../components/ContextualTip'
 
 function Home({ onResult }) {
   // #7 — Restore draft from sessionStorage
@@ -340,10 +341,21 @@ function Home({ onResult }) {
 
           <input type="text" value={honeypot} onChange={(e) => setHoneypot(e.target.value)} tabIndex={-1} autoComplete="off" style={{ display: 'none' }} aria-hidden="true" />
 
+          {/* #7 — Error with action buttons */}
           {error && (
-            <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 rounded-lg p-3 text-sm flex items-center gap-2" role="alert">
-              <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-              {error}
+            <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 rounded-lg p-3 text-sm" role="alert">
+              <div className="flex items-center gap-2">
+                <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                <span className="flex-1">{error}</span>
+              </div>
+              <div className="flex gap-2 mt-2 mr-6">
+                <button onClick={() => { setError(''); handleSubmit() }} className="px-3 py-1 bg-red-100 dark:bg-red-900/30 hover:bg-red-200 dark:hover:bg-red-800/40 text-red-700 dark:text-red-400 text-xs font-medium rounded-lg transition-colors">
+                  إعادة المحاولة
+                </button>
+                <button onClick={() => setError('')} className="px-3 py-1 text-red-500 hover:text-red-600 text-xs transition-colors">
+                  إخفاء
+                </button>
+              </div>
             </div>
           )}
 
@@ -355,26 +367,28 @@ function Home({ onResult }) {
             <button data-submit-btn onClick={handleSubmit} disabled={!canSubmit || loading || !isOnline || rateInfo.remaining <= 0} className="w-full py-4 bg-primary-600 hover:bg-primary-700 active:bg-primary-800 disabled:bg-slate-300 dark:disabled:bg-slate-700 disabled:cursor-not-allowed text-white text-lg font-semibold rounded-xl transition-all transform active:scale-[0.99] focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2" aria-label="تحقق الآن">
               تحقق الآن
             </button>
-            <div className="flex items-center justify-center gap-2 text-xs text-slate-400 dark:text-slate-500">
-              <span>{rateInfo.remaining}/{rateInfo.total} تحليل متبقي</span>
-              {/* #2 — Countdown timer */}
-              {countdown > 0 ? (
+            {/* #3 — Visual rate limit bar */}
+            <div className="flex items-center gap-3 text-xs text-slate-400 dark:text-slate-500">
+              <div className="flex-1 max-w-32 h-1.5 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
+                <div
+                  className={`h-full rounded-full transition-all duration-500 ${rateInfo.remaining <= 3 ? 'bg-red-400' : rateInfo.remaining <= 8 ? 'bg-amber-400' : 'bg-green-400'}`}
+                  style={{ width: `${(rateInfo.remaining / rateInfo.total) * 100}%` }}
+                />
+              </div>
+              <span>{rateInfo.remaining}/{rateInfo.total}</span>
+              {countdown > 0 && (
                 <span className="text-red-500 font-mono font-bold flex items-center gap-1">
                   <svg className="w-3 h-3 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
                   {formatCountdown(countdown)}
                 </span>
-              ) : (
-                <>
-                  {rateInfo.remaining < 5 && rateInfo.remaining > 0 && <span className="text-amber-500">({rateInfo.nextReset} د)</span>}
-                  {rateInfo.remaining <= 0 && <span className="text-red-500">حاول بعد {rateInfo.nextReset} دقيقة</span>}
-                </>
               )}
+              {!countdown && rateInfo.remaining <= 0 && <span className="text-red-500">حاول بعد {rateInfo.nextReset} د</span>}
             </div>
           </div>
 
-          <SampleTexts onSelect={setText} />
+          <ContextualTip id="sample"><SampleTexts onSelect={setText} /></ContextualTip>
           <HistoryPanel onSelect={(item) => onResult(item)} />
 
           <FloatingToolbar onPaste={handlePasteAnalyze} onClear={() => setText('')} onSubmit={handleSubmit} canSubmit={canSubmit && isOnline && rateInfo.remaining > 0} hasText={wordCount > 0} loading={false} />
