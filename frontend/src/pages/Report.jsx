@@ -27,6 +27,9 @@ import CreativityScore from '../components/CreativityScore'
 import UserFeedback from '../components/UserFeedback'
 import EmbedBadge from '../components/EmbedBadge'
 import CompareShare from '../components/CompareShare'
+import ConfidenceInterval from '../components/ConfidenceInterval'
+import ShortTextWarning from '../components/ShortTextWarning'
+import LanguageBreakdown from '../components/LanguageBreakdown'
 import { exportReportAsPDF } from '../utils/pdfExport'
 import { exportReportAsPNG } from '../utils/pngExport'
 import { exportReportAsDOCX } from '../utils/docxExport'
@@ -77,6 +80,7 @@ function Report({ data, onBack }) {
   const [activeSection, setActiveSection] = useState('section-result')
   const [showHeatmap, setShowHeatmap] = useState(false)
   const [showPresentation, setShowPresentation] = useState(false)
+  const [mobileNavOpen, setMobileNavOpen] = useState(false) // #18
   const { addToast } = useToast()
 
   useEffect(() => {
@@ -148,29 +152,57 @@ function Report({ data, onBack }) {
 
       <nav className="sticky top-0 z-30 bg-slate-50/80 dark:bg-slate-900/80 backdrop-blur-sm py-2 -mx-4 px-4 border-b border-slate-200/50 dark:border-slate-700/50 no-print" aria-label="تنقل الأقسام">
         <div className="flex items-center gap-1 overflow-x-auto scrollbar-hide">
-          {sections.map((s) => (
-            <button key={s.id} onClick={() => scrollTo(s.id)}
-              className={`px-3 py-1.5 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${activeSection === s.id ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/30 dark:text-primary-400' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
-            >{s.label}</button>
-          ))}
+          {/* #18 — Mobile hamburger */}
+          <div className="sm:hidden relative">
+            <button
+              onClick={() => setMobileNavOpen(!mobileNavOpen)}
+              className="p-1.5 rounded-lg text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors focus:outline-none focus:ring-2 focus:ring-primary-500"
+              aria-label="قائمة الأقسام"
+              aria-expanded={mobileNavOpen}
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" /></svg>
+            </button>
+            {mobileNavOpen && (
+              <div className="absolute top-full right-0 mt-1 bg-white dark:bg-slate-800 rounded-xl shadow-lg border border-slate-200 dark:border-slate-700 py-1 z-40 min-w-36">
+                {sections.map((s) => (
+                  <button key={s.id} onClick={() => { scrollTo(s.id); setMobileNavOpen(false) }}
+                    className={`w-full text-right px-4 py-2 text-sm transition-colors ${activeSection === s.id ? 'bg-primary-50 text-primary-700 dark:bg-primary-900/30 dark:text-primary-400 font-medium' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700'}`}
+                  >{s.label}</button>
+                ))}
+              </div>
+            )}
+          </div>
+          {/* Desktop section buttons */}
+          <div className="hidden sm:flex items-center gap-1">
+            {sections.map((s) => (
+              <button key={s.id} onClick={() => scrollTo(s.id)}
+                className={`px-3 py-1.5 rounded-full text-sm font-medium whitespace-nowrap transition-colors focus:outline-none focus:ring-2 focus:ring-primary-500 ${activeSection === s.id ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/30 dark:text-primary-400' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
+              >{s.label}</button>
+            ))}
+          </div>
+          {/* Mobile: current section indicator */}
+          <span className="sm:hidden text-xs font-medium text-primary-600 dark:text-primary-400">
+            {sections.find((s) => s.id === activeSection)?.label}
+            <span className="text-slate-400 mr-1">({sections.findIndex((s) => s.id === activeSection) + 1}/{sections.length})</span>
+          </span>
           <div className="flex-1" />
           <div className="flex items-center gap-1 shrink-0">
-            <button onClick={handleShare} className="p-1.5 rounded-full text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" title="مشاركة">
+            <button onClick={handleShare} className="p-1.5 rounded-full text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors focus:outline-none focus:ring-2 focus:ring-primary-500" aria-label="مشاركة التقرير">
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" /></svg>
             </button>
-            <button onClick={() => { exportReportAsPNG(data); addToast('جارٍ تحميل PNG...', 'info') }} className="p-1.5 rounded-full text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" title="PNG">
+            <button onClick={() => { exportReportAsPNG(data); addToast('جارٍ تحميل PNG...', 'info') }} className="p-1.5 rounded-full text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors focus:outline-none focus:ring-2 focus:ring-primary-500" aria-label="تصدير كصورة PNG">
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
             </button>
-            <button onClick={() => exportReportAsPDF(data)} className="p-1.5 rounded-full text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" title="PDF">
+            <button onClick={() => exportReportAsPDF(data)} className="p-1.5 rounded-full text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors focus:outline-none focus:ring-2 focus:ring-primary-500" aria-label="تصدير كملف PDF">
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
             </button>
-            <button onClick={() => { exportReportAsDOCX(data); addToast('جارٍ تحميل DOCX...', 'info') }} className="p-1.5 rounded-full text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" title="Word">
+            <button onClick={() => { exportReportAsDOCX(data); addToast('جارٍ تحميل DOCX...', 'info') }} className="p-1.5 rounded-full text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors focus:outline-none focus:ring-2 focus:ring-primary-500" aria-label="تصدير كملف Word">
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
             </button>
-            <button onClick={() => window.print()} className="p-1.5 rounded-full text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" title="طباعة">
+            <button onClick={() => window.print()} className="p-1.5 rounded-full text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors focus:outline-none focus:ring-2 focus:ring-primary-500" aria-label="طباعة التقرير">
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" /></svg>
             </button>
-            <button onClick={handleCopy} className="p-1.5 rounded-full text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" title="نسخ">
+            <button onClick={handleCopy} className="p-1.5 rounded-full text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors focus:outline-none focus:ring-2 focus:ring-primary-500" aria-label="نسخ التقرير">
               {copied ? <svg className="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
               : <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>}
             </button>
@@ -180,10 +212,19 @@ function Report({ data, onBack }) {
 
       <ScrollReveal><div id="section-result"><ResultCard result={result} /></div></ScrollReveal>
 
-      {/* #9 — Reliability + #3 Confidence interval */}
+      {/* #9 — Short text warning */}
+      <ShortTextWarning wordCount={metadata.word_count} sentenceCount={metadata.sentence_count} />
+
+      {/* #5 — Confidence interval */}
+      <ScrollReveal delay={20}><ConfidenceInterval result={result} statistical={statistical} ml={ml} /></ScrollReveal>
+
+      {/* Reliability */}
       <ScrollReveal delay={30}><ReliabilityMeter reliability={metadata?.reliability} result={result} /></ScrollReveal>
 
-      {/* #4 — Mixed text detection */}
+      {/* #23 — Language breakdown */}
+      {sentences?.length > 0 && <ScrollReveal delay={35}><LanguageBreakdown text={fullText} /></ScrollReveal>}
+
+      {/* Mixed text detection */}
       {sentences?.length > 0 && <ScrollReveal delay={40}><MixedTextDetector sentences={sentences} /></ScrollReveal>}
 
       <ScrollReveal delay={50}>

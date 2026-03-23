@@ -16,6 +16,7 @@ import { getRateLimitInfo, recordAnalysis, canAnalyze } from '../utils/rateLimit
 import { isBot, isTooFast } from '../utils/honeypot'
 import { cleanTextForAnalysis, smartPasteClean } from '../utils/textCleaner'
 import { requestNotificationPermission, sendAnalysisNotification } from '../utils/notifications'
+import { saveDraft, loadDraft, clearDraft } from '../utils/draftStorage'
 
 function Home({ onResult }) {
   // #7 — Restore draft from sessionStorage
@@ -31,22 +32,58 @@ function Home({ onResult }) {
   const [step, setStep] = useState(null)
   const [urlInput, setUrlInput] = useState('')
   const [urlLoading, setUrlLoading] = useState(false)
+  const [urlPreview, setUrlPreview] = useState(null) // #4 — URL preview
   const [honeypot, setHoneypot] = useState('')
   const [cleaningInfo, setCleaningInfo] = useState(null)
+  const [draftRecovery, setDraftRecovery] = useState(null) // #3 — IndexedDB recovery
+  const [countdown, setCountdown] = useState(0) // #2 — Rate limit countdown
   const isOnline = useOnlineStatus()
   const { addToast } = useToast()
   const pageLoadTime = useRef(Date.now())
+  const draftTimer = useRef(null)
 
   // #8 — Request notification permission
   useEffect(() => { requestNotificationPermission() }, [])
 
-  // #7 — Auto-save draft
+  // #3 — Load draft from IndexedDB on mount
+  useEffect(() => {
+    const privacy = localStorage.getItem('privacy_mode') === 'true'
+    if (privacy) return
+    loadDraft().then((draft) => {
+      if (draft && draft.text && draft.text.length > 10 && !text) {
+        setDraftRecovery(draft)
+      }
+    })
+  }, [])
+
+  // #7 — Auto-save draft to sessionStorage
   useEffect(() => {
     try {
       const privacy = localStorage.getItem('privacy_mode') === 'true'
       if (!privacy) sessionStorage.setItem('draft_text', text)
     } catch {}
   }, [text])
+
+  // #3 — Auto-save draft to IndexedDB every 10s
+  useEffect(() => {
+    const privacy = localStorage.getItem('privacy_mode') === 'true'
+    if (privacy || !text || text.length < 20) return
+    if (draftTimer.current) clearTimeout(draftTimer.current)
+    draftTimer.current = setTimeout(() => saveDraft(text), 10000)
+    return () => { if (draftTimer.current) clearTimeout(draftTimer.current) }
+  }, [text])
+
+  // #2 — Countdown timer when rate limited
+  useEffect(() => {
+    if (countdown <= 0) return
+    const timer = setInterval(() => {
+      setCountdown((prev) => {
+        if (prev <= 1) { clearInterval(timer); return 0 }
+        return prev - 1
+      })
+    }, 1000)
+    return () => clearInterval(timer)
+  }, [countdown > 0])
 
   const wordCount = useMemo(() => countWords(text), [text])
   const canSubmit = wordCount >= 50 && wordCount <= 5000
@@ -55,7 +92,6 @@ function Home({ onResult }) {
 
   // #8 — Smart paste handler
   const handleTextChange = useCallback((newText) => {
-    // Detect paste (large change)
     if (newText.length > text.length + 20) {
       const { text: cleaned, changes } = smartPasteClean(newText)
       if (changes.length > 0) {
@@ -67,6 +103,35 @@ function Home({ onResult }) {
     setText(newText)
   }, [text, addToast])
 
+  // #22 — Smart error messages
+  const getSmartError = (err) => {
+    const status = err.response?.status
+    const detail = err.response?.data?.detail
+
+    if (!navigator.onLine || err.code === 'ERR_NETWORK') {
+      return 'لا يوجد اتصال بالإنترنت. تحقق من اتصالك وحاول مرة أخرى.'
+    }
+    if (status === 429) {
+      const info = getRateLimitInfo()
+      setCountdown(info.nextReset * 60)
+      return `تم تجاوز الحد الأقصى للتحليلات. متاح بعد ${info.nextReset} دقيقة.`
+    }
+    if (status === 422) {
+      if (typeof detail === 'string') {
+        if (detail.includes('50')) return 'النص قصير جداً. أضف المزيد حتى يصل إلى 50 كلمة على الأقل.'
+        if (detail.includes('5000')) return 'النص طويل جداً. الحد الأقصى 5000 كلمة.'
+        if (detail.includes('عربي') || detail.includes('arabic')) return 'نسبة النص العربي منخفضة. تأكد من أن 30% على الأقل من النص عربي.'
+        return detail
+      }
+      if (Array.isArray(detail)) return detail[0]?.msg || 'بيانات غير صالحة. تحقق من النص وحاول مرة أخرى.'
+    }
+    if (status === 500 || status === 502 || status === 503) {
+      return 'الخادم غير متاح مؤقتاً. حاول مرة أخرى بعد قليل.'
+    }
+    if (typeof detail === 'string') return detail
+    return 'حدث خطأ غير متوقع. حاول مرة أخرى أو تأكد من اتصالك بالإنترنت.'
+  }
+
   const handleSubmit = useCallback(async () => {
     if (!canSubmit || loading) return
     if (isBot(honeypot)) return
@@ -76,11 +141,11 @@ function Home({ onResult }) {
     }
     if (!canAnalyze()) {
       const info = getRateLimitInfo()
+      setCountdown(info.nextReset * 60) // #2 — Start countdown
       addToast(`تم تجاوز الحد الأقصى (${info.total} تحليل/ساعة). حاول بعد ${info.nextReset} دقيقة.`, 'warning', 5000)
       return
     }
 
-    // #5 — Auto-clean text before analysis
     const { text: cleanedText, changes } = cleanTextForAnalysis(text)
     if (changes.length > 0) {
       setCleaningInfo(changes)
@@ -110,20 +175,14 @@ function Home({ onResult }) {
       }
       recordAnalysis()
       setStep(null)
-      // Clear draft after successful analysis
       sessionStorage.removeItem('draft_text')
+      clearDraft() // #3 — Clear IndexedDB draft
       addToast('تم التحليل بنجاح!', 'success')
-      // #8 — Browser notification if tab is in background
       sendAnalysisNotification(data.result)
       onResult(data)
     } catch (err) {
       setStep(null)
-      const message = err.response?.data?.detail
-      if (Array.isArray(message)) {
-        setError(message[0]?.msg || 'حدث خطأ أثناء التحليل')
-      } else {
-        setError(message || 'حدث خطأ أثناء التحليل. يرجى المحاولة مرة أخرى.')
-      }
+      setError(getSmartError(err)) // #22 — Smart error
       addToast('فشل التحليل', 'error')
     } finally {
       setLoading(false)
@@ -147,21 +206,36 @@ function Home({ onResult }) {
 
   useKeyboardShortcuts({ onSubmit: handleSubmit, onPasteAnalyze: handlePasteAnalyze })
 
-  const handleUrlAnalyze = async () => {
+  // #4 — URL preview before analysis
+  const handleUrlExtract = async () => {
     if (!urlInput.trim()) return
     setUrlLoading(true)
     setError('')
     try {
       const { fetchUrlContent } = await import('../services/api')
       const extractedText = await fetchUrlContent(urlInput.trim())
-      setText(extractedText)
-      setUrlInput('')
-      addToast('تم استخراج النص من الرابط', 'success')
+      setUrlPreview(extractedText) // Show preview instead of auto-inserting
     } catch {
       setError('تعذر استخراج النص من الرابط. تأكد من صحة الرابط وحاول مرة أخرى.')
     } finally {
       setUrlLoading(false)
     }
+  }
+
+  const acceptUrlPreview = () => {
+    if (urlPreview) {
+      setText(urlPreview)
+      setUrlPreview(null)
+      setUrlInput('')
+      addToast('تم إدراج النص المستخرج', 'success')
+    }
+  }
+
+  // #2 — Format countdown
+  const formatCountdown = (seconds) => {
+    const m = Math.floor(seconds / 60)
+    const s = seconds % 60
+    return `${m}:${s.toString().padStart(2, '0')}`
   }
 
   return (
@@ -171,8 +245,33 @@ function Home({ onResult }) {
         <p className="text-slate-500 dark:text-slate-400 text-sm sm:text-base">الصق النص العربي المراد فحصه وسنحلله لك باستخدام الذكاء الاصطناعي والتحليل الإحصائي</p>
       </div>
 
+      {/* #3 — Draft recovery banner */}
+      {draftRecovery && !text && (
+        <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <svg className="w-4 h-4 text-blue-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            <div>
+              <p className="text-xs font-medium text-blue-700 dark:text-blue-400">مسودة محفوظة</p>
+              <p className="text-[10px] text-blue-500">
+                {countWords(draftRecovery.text)} كلمة — منذ {Math.round((Date.now() - draftRecovery.timestamp) / 60000)} دقيقة
+              </p>
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <button onClick={() => { setText(draftRecovery.text); setDraftRecovery(null) }} className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500">
+              استئناف
+            </button>
+            <button onClick={() => { setDraftRecovery(null); clearDraft() }} className="px-3 py-1 bg-slate-200 dark:bg-slate-600 text-slate-600 dark:text-slate-300 text-xs rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-slate-500">
+              تجاهل
+            </button>
+          </div>
+        </div>
+      )}
+
       {loading ? (
-        <div className="space-y-4">
+        <div className="space-y-4" role="status" aria-busy="true" aria-label="جارٍ التحليل">
           {step && <ProgressSteps currentStep={step} />}
           <SkeletonReport />
         </div>
@@ -180,11 +279,10 @@ function Home({ onResult }) {
         <>
           <TextInput value={text} onChange={handleTextChange} wordCount={wordCount} />
 
-          {/* #6 — Smart minimum with circular progress */}
           {wordCount > 0 && wordCount < 50 && (
             <div className="flex items-center justify-center gap-3 py-1">
               <div className="relative w-10 h-10">
-                <svg className="w-10 h-10 transform -rotate-90" viewBox="0 0 40 40">
+                <svg className="w-10 h-10 transform -rotate-90" viewBox="0 0 40 40" aria-hidden="true">
                   <circle cx="20" cy="20" r="16" fill="none" stroke="#e2e8f0" strokeWidth="3" className="dark:stroke-slate-700" />
                   <circle cx="20" cy="20" r="16" fill="none" stroke="#f59e0b" strokeWidth="3" strokeLinecap="round"
                     strokeDasharray={2 * Math.PI * 16} strokeDashoffset={2 * Math.PI * 16 * (1 - wordCount / 50)}
@@ -197,9 +295,8 @@ function Home({ onResult }) {
             </div>
           )}
 
-          {/* #5 — Cleaning info toast */}
           {cleaningInfo && (
-            <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 text-blue-600 dark:text-blue-400 rounded-lg p-2 text-xs text-center">
+            <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 text-blue-600 dark:text-blue-400 rounded-lg p-2 text-xs text-center" role="status">
               تم تنظيف النص: {cleaningInfo.join(' | ')}
             </div>
           )}
@@ -208,17 +305,44 @@ function Home({ onResult }) {
           <LanguageDetector text={text} />
 
           <div className="flex gap-2">
-            <input type="url" value={urlInput} onChange={(e) => setUrlInput(e.target.value)} placeholder="أو الصق رابط مقال لاستخراج النص..." className="flex-1 px-4 py-2.5 border-2 border-slate-200 dark:border-slate-600 rounded-xl text-sm bg-white dark:bg-slate-800 dark:text-slate-100 dark:placeholder-slate-500 outline-none focus:border-primary-500 transition-colors" dir="ltr" />
-            <button onClick={handleUrlAnalyze} disabled={!urlInput.trim() || urlLoading} className="px-4 py-2.5 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 disabled:opacity-50 text-slate-600 dark:text-slate-300 text-sm font-medium rounded-xl transition-colors border border-slate-200 dark:border-slate-600 shrink-0">
-              {urlLoading ? <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg> : 'استخراج'}
+            <input type="url" value={urlInput} onChange={(e) => setUrlInput(e.target.value)} placeholder="أو الصق رابط مقال لاستخراج النص..." className="flex-1 px-4 py-2.5 border-2 border-slate-200 dark:border-slate-600 rounded-xl text-sm bg-white dark:bg-slate-800 dark:text-slate-100 dark:placeholder-slate-500 outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-200 dark:focus:ring-primary-800 transition-colors" dir="ltr" aria-label="رابط المقال" />
+            <button onClick={handleUrlExtract} disabled={!urlInput.trim() || urlLoading} className="px-4 py-2.5 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 disabled:opacity-50 text-slate-600 dark:text-slate-300 text-sm font-medium rounded-xl transition-colors border border-slate-200 dark:border-slate-600 shrink-0 focus:outline-none focus:ring-2 focus:ring-primary-500" aria-label="استخراج النص">
+              {urlLoading ? <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" role="status" aria-label="جارٍ الاستخراج"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg> : 'استخراج'}
             </button>
           </div>
 
-          <input type="text" value={honeypot} onChange={(e) => setHoneypot(e.target.value)} tabIndex={-1} autoComplete="off" style={{ position: 'absolute', left: '-9999px', opacity: 0, height: 0 }} aria-hidden="true" />
+          {/* #4 — URL preview modal */}
+          {urlPreview && (
+            <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <h4 className="text-sm font-bold text-slate-700 dark:text-slate-300 flex items-center gap-2">
+                  <svg className="w-4 h-4 text-primary-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                  </svg>
+                  معاينة النص المستخرج
+                </h4>
+                <span className="text-[10px] text-slate-400">{countWords(urlPreview)} كلمة</span>
+              </div>
+              <div className="max-h-32 overflow-y-auto text-xs text-slate-500 dark:text-slate-400 leading-relaxed bg-slate-50 dark:bg-slate-700/50 rounded-lg p-3" dir="rtl">
+                {urlPreview.slice(0, 500)}{urlPreview.length > 500 ? '...' : ''}
+              </div>
+              <div className="flex gap-2">
+                <button onClick={acceptUrlPreview} className="flex-1 py-2 bg-primary-600 hover:bg-primary-700 text-white text-xs font-medium rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-primary-500">
+                  استخدام هذا النص
+                </button>
+                <button onClick={() => setUrlPreview(null)} className="px-4 py-2 bg-slate-200 dark:bg-slate-600 text-slate-600 dark:text-slate-300 text-xs rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-slate-500">
+                  إلغاء
+                </button>
+              </div>
+            </div>
+          )}
+
+          <input type="text" value={honeypot} onChange={(e) => setHoneypot(e.target.value)} tabIndex={-1} autoComplete="off" style={{ display: 'none' }} aria-hidden="true" />
 
           {error && (
             <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 rounded-lg p-3 text-sm flex items-center gap-2" role="alert">
-              <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+              <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
               {error}
             </div>
           )}
@@ -228,13 +352,25 @@ function Home({ onResult }) {
           )}
 
           <div className="space-y-1.5">
-            <button data-submit-btn onClick={handleSubmit} disabled={!canSubmit || loading || !isOnline || rateInfo.remaining <= 0} className="w-full py-4 bg-primary-600 hover:bg-primary-700 active:bg-primary-800 disabled:bg-slate-300 dark:disabled:bg-slate-700 disabled:cursor-not-allowed text-white text-lg font-semibold rounded-xl transition-all transform active:scale-[0.99]">
+            <button data-submit-btn onClick={handleSubmit} disabled={!canSubmit || loading || !isOnline || rateInfo.remaining <= 0} className="w-full py-4 bg-primary-600 hover:bg-primary-700 active:bg-primary-800 disabled:bg-slate-300 dark:disabled:bg-slate-700 disabled:cursor-not-allowed text-white text-lg font-semibold rounded-xl transition-all transform active:scale-[0.99] focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2" aria-label="تحقق الآن">
               تحقق الآن
             </button>
             <div className="flex items-center justify-center gap-2 text-xs text-slate-400 dark:text-slate-500">
               <span>{rateInfo.remaining}/{rateInfo.total} تحليل متبقي</span>
-              {rateInfo.remaining < 5 && rateInfo.remaining > 0 && <span className="text-amber-500">({rateInfo.nextReset} د)</span>}
-              {rateInfo.remaining <= 0 && <span className="text-red-500">حاول بعد {rateInfo.nextReset} دقيقة</span>}
+              {/* #2 — Countdown timer */}
+              {countdown > 0 ? (
+                <span className="text-red-500 font-mono font-bold flex items-center gap-1">
+                  <svg className="w-3 h-3 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  {formatCountdown(countdown)}
+                </span>
+              ) : (
+                <>
+                  {rateInfo.remaining < 5 && rateInfo.remaining > 0 && <span className="text-amber-500">({rateInfo.nextReset} د)</span>}
+                  {rateInfo.remaining <= 0 && <span className="text-red-500">حاول بعد {rateInfo.nextReset} دقيقة</span>}
+                </>
+              )}
             </div>
           </div>
 

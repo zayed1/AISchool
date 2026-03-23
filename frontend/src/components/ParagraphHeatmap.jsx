@@ -6,12 +6,20 @@ function ParagraphHeatmap({ sentences }) {
 
   if (!sentences || sentences.length < 2) return null
 
-  // Group sentences into paragraphs of ~3
+  // #20 — Smart paragraph splitting: respect natural breaks
   const paragraphs = []
-  for (let i = 0; i < sentences.length; i += 3) {
-    const chunk = sentences.slice(i, i + 3)
-    const avgScore = chunk.reduce((s, c) => s + c.score, 0) / chunk.length
-    paragraphs.push({ sentences: chunk, avgScore })
+  let currentChunk = []
+  for (let i = 0; i < sentences.length; i++) {
+    currentChunk.push(sentences[i])
+    const hasBreak = sentences[i].text.includes('\n') || sentences[i].text.endsWith('.')
+    const isLong = currentChunk.length >= 3
+    const isVeryLong = currentChunk.length >= 5
+    const isLast = i === sentences.length - 1
+    if (isLast || isVeryLong || (isLong && hasBreak)) {
+      const avgScore = currentChunk.reduce((s, c) => s + c.score, 0) / currentChunk.length
+      paragraphs.push({ sentences: [...currentChunk], avgScore })
+      currentChunk = []
+    }
   }
 
   const getColor = (score) => {

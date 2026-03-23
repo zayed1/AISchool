@@ -87,12 +87,14 @@ function CompareView({ onBack }) {
         </div>
 
         {/* Comparison table */}
-        <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4 sm:p-6 overflow-x-auto">
+        {/* #19 — Scrollable comparison table */}
+        <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4 sm:p-6">
           <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200 mb-3">مقارنة المؤشرات</h3>
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
+          <table className="w-full text-sm min-w-[400px]">
             <thead>
               <tr className="text-slate-500 dark:text-slate-400 border-b dark:border-slate-700">
-                <th className="text-right py-2">المؤشر</th>
+                <th className="text-right py-2 sticky right-0 bg-white dark:bg-slate-800 z-10">المؤشر</th>
                 {results.slice(0, textCount).map((_, i) => (
                   <th key={i} className="py-2">
                     <span className="flex items-center justify-center gap-1">
@@ -106,7 +108,7 @@ function CompareView({ onBack }) {
             <tbody>
               {INDICATOR_META.map((ind) => (
                 <tr key={ind.key} className="border-b border-slate-100 dark:border-slate-700">
-                  <td className="py-2 font-medium text-slate-700 dark:text-slate-300">{ind.label}</td>
+                  <td className="py-2 font-medium text-slate-700 dark:text-slate-300 sticky right-0 bg-white dark:bg-slate-800 z-10">{ind.label}</td>
                   {results.slice(0, textCount).map((r, i) => {
                     if (!r) return <td key={i} />
                     const pct = Math.min(Math.round((r.statistical[ind.key] / ind.max) * 100), 100)
@@ -134,6 +136,7 @@ function CompareView({ onBack }) {
               </tr>
             </tbody>
           </table>
+          </div>
         </div>
 
         {/* Radar overlay for first 2 */}

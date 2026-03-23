@@ -12,10 +12,24 @@ function ResultCard({ result }) {
   const colors = colorMap[result.color] || colorMap.yellow
   const circumference = 2 * Math.PI * 54
 
-  const [displayPercent, setDisplayPercent] = useState(0)
-  const [currentOffset, setCurrentOffset] = useState(circumference)
+  // #15 — Check reduced motion preference
+  const prefersReduced =
+    typeof window !== 'undefined' &&
+    (window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches ||
+     localStorage.getItem('reduced_motion') === 'true')
+
+  const [displayPercent, setDisplayPercent] = useState(prefersReduced ? result.percentage : 0)
+  const [currentOffset, setCurrentOffset] = useState(
+    prefersReduced ? circumference - (result.percentage / 100) * circumference : circumference
+  )
 
   useEffect(() => {
+    if (prefersReduced) {
+      setDisplayPercent(result.percentage)
+      setCurrentOffset(circumference - (result.percentage / 100) * circumference)
+      return
+    }
+
     const duration = 1200
     const startTime = performance.now()
 
@@ -31,7 +45,7 @@ function ResultCard({ result }) {
     }
 
     requestAnimationFrame(animate)
-  }, [result.percentage, circumference])
+  }, [result.percentage, circumference, prefersReduced])
 
   return (
     <div className={`${colors.bg} ${colors.border} border-2 rounded-2xl p-8 text-center`} role="status" aria-label={`النتيجة: ${result.percentage}% — ${result.level}`}>
