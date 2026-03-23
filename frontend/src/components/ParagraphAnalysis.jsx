@@ -1,15 +1,23 @@
 // #5 — Paragraph-level analysis breakdown
+// #20 — Smart paragraph splitting: respect original line breaks
 function ParagraphAnalysis({ sentences }) {
   if (!sentences || sentences.length === 0) return null
 
-  // Group sentences into paragraphs (roughly by sentence count clusters)
+  // #20 — Smart split: look for sentences ending with line breaks or long gaps
   const paragraphs = []
   let current = { sentences: [], startIdx: 0 }
 
   sentences.forEach((s, i) => {
     current.sentences.push(s)
-    // Split paragraph every ~3-5 sentences or if text ends with newline-like pattern
-    if (current.sentences.length >= 4 || i === sentences.length - 1) {
+
+    // Detect paragraph breaks: sentence text ends with \n, or natural break after 3-5 sentences
+    const hasLineBreak = s.text.includes('\n') || s.text.endsWith('.')
+    const isLongEnough = current.sentences.length >= 3
+    const isVeryLong = current.sentences.length >= 5
+    const isLast = i === sentences.length - 1
+
+    // Split on natural boundaries or after accumulating enough sentences
+    if (isLast || isVeryLong || (isLongEnough && hasLineBreak)) {
       paragraphs.push({ ...current })
       current = { sentences: [], startIdx: i + 1 }
     }
@@ -48,7 +56,6 @@ function ParagraphAnalysis({ sentences }) {
                 <span className={`text-sm font-bold ${textColor}`}>{percentage}%</span>
               </div>
 
-              {/* Mini bar */}
               <div className="w-full h-1.5 bg-slate-200 dark:bg-slate-600 rounded-full mb-2 overflow-hidden">
                 <div className={`h-full rounded-full transition-all duration-700 ${barColor}`} style={{ width: `${percentage}%` }} />
               </div>
