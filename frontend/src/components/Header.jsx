@@ -17,7 +17,9 @@ function Header({ onCompareToggle, isCompareMode, onSettingsOpen, onHowItWorksOp
   ]
 
   return (
-    <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 shadow-sm no-print">
+    <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 shadow-sm no-print relative overflow-hidden">
+      {/* #38 — Animated gradient accent */}
+      <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-primary-500 via-blue-500 to-primary-500 animate-gradient-x" />
       <div className="container mx-auto px-4 py-4 max-w-4xl">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">

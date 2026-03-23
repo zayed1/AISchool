@@ -91,13 +91,17 @@ function Home({ onResult }) {
   const rateInfo = getRateLimitInfo()
   const wordsNeeded = Math.max(0, 50 - wordCount)
 
-  // #8 — Smart paste handler
+  // #41 — Enhanced smart paste with detailed notification
   const handleTextChange = useCallback((newText) => {
     if (newText.length > text.length + 20) {
       const { text: cleaned, changes } = smartPasteClean(newText)
-      if (changes.length > 0) {
+      const removedChars = newText.length - cleaned.length
+      if (changes.length > 0 || removedChars > 5) {
         setText(cleaned)
-        addToast(`تنظيف تلقائي: ${changes.join('، ')}`, 'info', 4000)
+        const details = changes.length > 0 ? changes.join('، ') : ''
+        const charInfo = removedChars > 0 ? `إزالة ${removedChars} حرف` : ''
+        const parts = [details, charInfo].filter(Boolean)
+        addToast(`تنظيف ذكي: ${parts.join(' · ')}`, 'info', 5000)
         return
       }
     }

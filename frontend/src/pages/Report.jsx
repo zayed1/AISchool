@@ -34,7 +34,7 @@ import ConfidenceInterval from '../components/ConfidenceInterval'
 import ShortTextWarning from '../components/ShortTextWarning'
 import LanguageBreakdown from '../components/LanguageBreakdown'
 import { exportReportAsPDF } from '../utils/pdfExport'
-import { exportReportAsPNG } from '../utils/pngExport'
+import { exportReportAsPNG, shareReportAsImage } from '../utils/pngExport'
 import { exportReportAsDOCX } from '../utils/docxExport'
 import { generateShareLink } from '../utils/share'
 import { launchConfetti } from '../utils/confetti'
@@ -84,9 +84,14 @@ function Report({ data, onBack }) {
   const [mobileNavOpen, setMobileNavOpen] = useState(false) // #18
   const { addToast } = useToast()
 
+  // #37 — Enhanced confetti: strong for ≤20%, normal for ≤35% green
   useEffect(() => {
-    if (result.color === 'green' && result.percentage <= 20) {
-      setTimeout(() => launchConfetti(), 500)
+    if (result.color === 'green') {
+      if (result.percentage <= 20) {
+        setTimeout(() => launchConfetti('strong'), 500)
+      } else if (result.percentage <= 35) {
+        setTimeout(() => launchConfetti('light'), 500)
+      }
     }
   }, [result])
 
@@ -195,6 +200,9 @@ function Report({ data, onBack }) {
             </button>
             <button onClick={() => { exportReportAsPNG(data); addToast('جارٍ تحميل PNG...', 'info') }} className="p-1.5 rounded-full text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors focus:outline-none focus:ring-2 focus:ring-primary-500" aria-label="تصدير كصورة PNG">
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+            </button>
+            <button onClick={async () => { const r = await shareReportAsImage(data); addToast(r.copied ? 'تم نسخ الصورة للمشاركة!' : 'تم تحميل بطاقة المشاركة', r.copied ? 'success' : 'info') }} className="p-1.5 rounded-full text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors focus:outline-none focus:ring-2 focus:ring-primary-500" aria-label="مشاركة كبطاقة">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
             </button>
             <button onClick={() => exportReportAsPDF(data)} className="p-1.5 rounded-full text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors focus:outline-none focus:ring-2 focus:ring-primary-500" aria-label="تصدير كملف PDF">
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>

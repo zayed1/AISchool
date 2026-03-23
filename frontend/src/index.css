@@ -62,6 +62,16 @@ html.dark body {
   animation: scale-in 0.3s ease-out;
 }
 
+/* #38 — Animated gradient for header accent */
+@keyframes gradient-x {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+.animate-gradient-x {
+  background-size: 200% 100%;
+  animation: gradient-x 4s ease-in-out infinite;
+}
+
 /* #19 — Unified hover utility classes */
 @layer utilities {
   .hover-muted {

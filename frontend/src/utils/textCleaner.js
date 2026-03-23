@@ -1,5 +1,5 @@
 // #5 — Auto text correction before analysis
-// #8 — Smart paste cleaning
+// #41 — Enhanced smart paste cleaning with more patterns
 
 export function cleanTextForAnalysis(text) {
   const changes = []
@@ -55,6 +55,35 @@ export function smartPasteClean(text) {
   if (urls) {
     cleaned = cleaned.replace(/https?:\/\/\S+/g, '')
     changes.push(`إزالة ${urls.length} روابط`)
+  }
+
+  // #41 — Remove zero-width and invisible unicode characters
+  const invisibleBefore = cleaned.length
+  cleaned = cleaned.replace(/[\u200B\u200C\u200D\u200E\u200F\uFEFF\u00AD]/g, '')
+  const invisibleRemoved = invisibleBefore - cleaned.length
+  if (invisibleRemoved > 0) {
+    changes.push(`إزالة ${invisibleRemoved} حرف مخفي`)
+  }
+
+  // #41 — Remove common copy-paste artifacts (bullet chars, fancy quotes → plain)
+  const bulletsBefore = (cleaned.match(/[•◦▪▸►◆★●○]/g) || []).length
+  if (bulletsBefore > 0) {
+    cleaned = cleaned.replace(/[•◦▪▸►◆★●○]\s*/g, '')
+    changes.push(`إزالة ${bulletsBefore} رموز نقطية`)
+  }
+
+  // Normalize fancy quotes to simple ones
+  const fancyQuotes = (cleaned.match(/[""''«»]/g) || []).length
+  if (fancyQuotes > 2) {
+    cleaned = cleaned.replace(/[""]/g, '"').replace(/['']/g, "'").replace(/[«»]/g, '"')
+    changes.push('توحيد علامات الاقتباس')
+  }
+
+  // Remove repeated dashes/underscores (separators)
+  const separators = cleaned.match(/[-_=]{5,}/g)
+  if (separators) {
+    cleaned = cleaned.replace(/[-_=]{5,}/g, '')
+    changes.push(`إزالة ${separators.length} فواصل`)
   }
 
   // Clean up result
