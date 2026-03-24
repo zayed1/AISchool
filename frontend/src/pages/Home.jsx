@@ -277,6 +277,12 @@ function Home({ onResult }) {
 
       {loading ? (
         <div className="space-y-4" role="status" aria-busy="true" aria-label="جارٍ التحليل">
+          {/* #61 — Live step announcements for screen readers */}
+          <div className="sr-only" aria-live="assertive" aria-atomic="true">
+            {step === 'statistical' && 'جارٍ التحليل الإحصائي للنص'}
+            {step === 'ml' && 'جارٍ فحص النص بنموذج الذكاء الاصطناعي'}
+            {step === 'combining' && 'جارٍ تجميع النتائج النهائية'}
+          </div>
           {step && <ProgressSteps currentStep={step} />}
           <SkeletonReport />
         </div>

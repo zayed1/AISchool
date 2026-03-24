@@ -1,4 +1,4 @@
-import { useState, useEffect, memo, lazy, Suspense } from 'react'
+import { useState, useEffect, useRef, memo, lazy, Suspense } from 'react'
 import ResultCard from '../components/ResultCard'
 import IndicatorBar from '../components/IndicatorBar'
 import CollapsibleSection from '../components/CollapsibleSection'
@@ -44,6 +44,83 @@ const PresentationMode = lazy(() => import('../components/PresentationMode'))
 
 const MemoParagraphAnalysis = memo(ParagraphAnalysis)
 const LazyFallback = <div className="h-24 bg-slate-100 dark:bg-slate-800 rounded-xl animate-pulse" />
+
+// #51 — CountUp animation component
+function CountUp({ end, suffix = '', duration = 1000 }) {
+  const [value, setValue] = useState(0)
+  const ref = useRef(null)
+  const started = useRef(false)
+
+  useEffect(() => {
+    const prefersReduced = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches || localStorage.getItem('reduced_motion') === 'true'
+    if (prefersReduced) { setValue(end); return }
+
+    const observer = new IntersectionObserver(([entry]) => {
+      if (entry.isIntersecting && !started.current) {
+        started.current = true
+        const startTime = performance.now()
+        const animate = (now) => {
+          const progress = Math.min((now - startTime) / duration, 1)
+          const eased = 1 - Math.pow(1 - progress, 3)
+          setValue(Math.round(eased * end))
+          if (progress < 1) requestAnimationFrame(animate)
+        }
+        requestAnimationFrame(animate)
+      }
+    }, { threshold: 0.3 })
+
+    if (ref.current) observer.observe(ref.current)
+    return () => observer.disconnect()
+  }, [end, duration])
+
+  return <span ref={ref}>{value}{suffix}</span>
+}
+
+// #54 — Inline text heatmap showing sentence-level AI probability
+function TextHeatmap({ sentences }) {
+  const [expanded, setExpanded] = useState(false)
+  if (!sentences?.length) return null
+  const shown = expanded ? sentences : sentences.slice(0, 8)
+
+  return (
+    <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4 sm:p-6">
+      <h3 className="text-base font-bold text-slate-800 dark:text-slate-200 mb-3 flex items-center gap-2">
+        <svg className="w-4 h-4 text-primary-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
+        خريطة النص الحرارية
+      </h3>
+      <div className="leading-[2.2] text-sm" dir="rtl" role="region" aria-label="خريطة حرارية تظهر احتمال الذكاء الاصطناعي لكل جملة">
+        {shown.map((s, i) => {
+          const score = s.score
+          const r = score >= 0.5 ? 255 : Math.round(score * 2 * 255)
+          const g = score <= 0.5 ? 200 : Math.round((1 - score) * 2 * 200)
+          const bg = `rgba(${r}, ${g}, 80, 0.15)`
+          const border = `rgba(${r}, ${g}, 80, 0.4)`
+          return (
+            <span
+              key={i}
+              className="inline rounded px-1 py-0.5 mx-0.5 border transition-colors cursor-default"
+              style={{ backgroundColor: bg, borderColor: border }}
+              title={`${Math.round(score * 100)}% احتمال AI`}
+              aria-label={`${s.text} — ${Math.round(score * 100)}% احتمال ذكاء اصطناعي`}
+            >
+              {s.text}
+            </span>
+          )
+        })}
+        {!expanded && sentences.length > 8 && (
+          <button onClick={() => setExpanded(true)} className="inline-block text-xs text-primary-500 hover:text-primary-600 mr-2 font-medium">
+            عرض الكل ({sentences.length} جملة)
+          </button>
+        )}
+      </div>
+      <div className="flex items-center gap-4 mt-3 text-[10px] text-slate-400" aria-hidden="true">
+        <span className="flex items-center gap-1"><span className="w-3 h-3 rounded" style={{background: 'rgba(0,200,80,0.2)', border: '1px solid rgba(0,200,80,0.4)'}} /> بشري</span>
+        <span className="flex items-center gap-1"><span className="w-3 h-3 rounded" style={{background: 'rgba(255,200,80,0.2)', border: '1px solid rgba(255,200,80,0.4)'}} /> محتمل</span>
+        <span className="flex items-center gap-1"><span className="w-3 h-3 rounded" style={{background: 'rgba(255,0,80,0.15)', border: '1px solid rgba(255,0,80,0.4)'}} /> اصطناعي</span>
+      </div>
+    </div>
+  )
+}
 
 const indicatorLabels = {
   ttr: 'تنوع المفردات',
@@ -152,6 +229,13 @@ function Report({ data, onBack }) {
 
   return (
     <div className="space-y-6" role="main" aria-label="تقرير التحليل">
+      {/* #61 — Screen reader summary */}
+      <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+        نتيجة التحليل: {result.percentage} بالمئة احتمال ذكاء اصطناعي.
+        التصنيف: {result.level}.
+        النموذج: {ml.label.toUpperCase() === 'AI' ? 'ذكاء اصطناعي' : 'بشري'} بثقة {Math.round(ml.confidence * 100)} بالمئة.
+        عدد الكلمات: {metadata.word_count}. عدد الجمل: {metadata.sentence_count}.
+      </div>
       {data._fromCache && (
         <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 text-blue-600 dark:text-blue-400 rounded-lg p-2 text-xs text-center no-print">
           نتيجة محفوظة من تحليل سابق لنفس النص
@@ -235,17 +319,27 @@ function Report({ data, onBack }) {
       {/* #23 — Language breakdown */}
       {sentences?.length > 0 && <ScrollReveal delay={35}><LanguageBreakdown text={fullText} /></ScrollReveal>}
 
+      {/* #54 — Text heatmap */}
+      {sentences?.length > 0 && <ScrollReveal delay={38}><TextHeatmap sentences={sentences} /></ScrollReveal>}
+
       {/* Mixed text detection */}
       {sentences?.length > 0 && <ScrollReveal delay={40}><MixedTextDetector sentences={sentences} /></ScrollReveal>}
 
+      {/* #51 — Stats with CountUp animation */}
       <ScrollReveal delay={50}>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 text-center">
-          {[{ label: 'عدد الكلمات', value: metadata.word_count },{ label: 'عدد الجمل', value: metadata.sentence_count },{ label: 'زمن التحليل', value: `${metadata.analysis_time_ms} مل‌ث` }].map((item) => (
-            <div key={item.label} className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-3 sm:p-4">
-              <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400">{item.label}</p>
-              <p className="text-xl sm:text-2xl font-bold text-slate-800 dark:text-slate-200">{item.value}</p>
-            </div>
-          ))}
+          <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-3 sm:p-4">
+            <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400">عدد الكلمات</p>
+            <p className="text-xl sm:text-2xl font-bold text-slate-800 dark:text-slate-200"><CountUp end={metadata.word_count} /></p>
+          </div>
+          <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-3 sm:p-4">
+            <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400">عدد الجمل</p>
+            <p className="text-xl sm:text-2xl font-bold text-slate-800 dark:text-slate-200"><CountUp end={metadata.sentence_count} /></p>
+          </div>
+          <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-3 sm:p-4">
+            <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400">زمن التحليل</p>
+            <p className="text-xl sm:text-2xl font-bold text-slate-800 dark:text-slate-200"><CountUp end={metadata.analysis_time_ms} suffix=" مل‌ث" /></p>
+          </div>
         </div>
       </ScrollReveal>
 
