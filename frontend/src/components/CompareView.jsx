@@ -1,4 +1,4 @@
-// Advanced Compare View — supports up to 3 texts
+// #42 — Enhanced Compare View with side-by-side diff visualization
 import { useState } from 'react'
 import TextInput from './TextInput'
 import ResultCard from './ResultCard'
@@ -61,18 +61,40 @@ function CompareView({ onBack }) {
   const textColors = ['text-blue-600', 'text-emerald-600', 'text-purple-600']
 
   if (activeResults.length >= 2) {
+    // #42 — Determine which text is more "human"
+    const sortedByHuman = results
+      .slice(0, textCount)
+      .map((r, i) => ({ r, i }))
+      .filter(({ r }) => r)
+      .sort((a, b) => a.r.result.percentage - b.r.result.percentage)
+    const mostHumanIdx = sortedByHuman[0]?.i
+
     return (
       <div className="space-y-6">
         <h2 className="text-xl font-bold text-slate-800 dark:text-slate-200 text-center">نتائج المقارنة</h2>
+
+        {/* #42 — Quick verdict banner */}
+        {activeResults.length >= 2 && (
+          <div className="bg-gradient-to-r from-blue-50 to-emerald-50 dark:from-blue-900/20 dark:to-emerald-900/20 border border-blue-200 dark:border-blue-800 rounded-xl p-4 text-center" role="status">
+            <p className="text-sm text-slate-600 dark:text-slate-400">
+              النص <span className={`font-bold ${textColors[mostHumanIdx]}`}>«{labels[mostHumanIdx]}»</span> هو الأكثر بشرية
+              <span className="mx-2 text-slate-400">—</span>
+              <span className="font-semibold text-slate-700 dark:text-slate-300">{results[mostHumanIdx].result.percentage}%</span> احتمال AI
+            </p>
+          </div>
+        )}
 
         {/* Result cards */}
         <div className={`grid grid-cols-1 ${textCount === 3 ? 'md:grid-cols-3' : 'md:grid-cols-2'} gap-4`}>
           {results.slice(0, textCount).map((r, i) =>
             r ? (
-              <div key={i} className="space-y-3">
+              <div key={i} className={`space-y-3 ${i === mostHumanIdx ? 'ring-2 ring-green-400 dark:ring-green-600 rounded-2xl p-2 -m-2' : ''}`}>
                 <div className="flex items-center gap-2 justify-center">
                   <span className={`w-3 h-3 rounded-full ${colors[i]}`} />
                   <span className="text-sm font-medium text-slate-500 dark:text-slate-400">النص {labels[i]}</span>
+                  {i === mostHumanIdx && (
+                    <span className="text-[10px] bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 px-2 py-0.5 rounded-full font-medium">الأكثر بشرية</span>
+                  )}
                 </div>
                 <ResultCard result={r.result} />
                 <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-3 text-center">
@@ -86,60 +108,63 @@ function CompareView({ onBack }) {
           )}
         </div>
 
-        {/* Comparison table */}
-        {/* #19 — Scrollable comparison table */}
+        {/* #42 — Side-by-side indicator diff bars */}
         <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4 sm:p-6">
-          <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200 mb-3">مقارنة المؤشرات</h3>
-          <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
-          <table className="w-full text-sm min-w-[400px]">
-            <thead>
-              <tr className="text-slate-500 dark:text-slate-400 border-b dark:border-slate-700">
-                <th className="text-right py-2 sticky right-0 bg-white dark:bg-slate-800 z-10">المؤشر</th>
-                {results.slice(0, textCount).map((_, i) => (
-                  <th key={i} className="py-2">
-                    <span className="flex items-center justify-center gap-1">
-                      <span className={`w-2 h-2 rounded-full ${colors[i]}`} />
-                      {labels[i]}
-                    </span>
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {INDICATOR_META.map((ind) => (
-                <tr key={ind.key} className="border-b border-slate-100 dark:border-slate-700">
-                  <td className="py-2 font-medium text-slate-700 dark:text-slate-300 sticky right-0 bg-white dark:bg-slate-800 z-10">{ind.label}</td>
-                  {results.slice(0, textCount).map((r, i) => {
-                    if (!r) return <td key={i} />
-                    const pct = Math.min(Math.round((r.statistical[ind.key] / ind.max) * 100), 100)
-                    return (
-                      <td key={i} className="py-2 text-center">
-                        <div className="flex items-center justify-center gap-2">
-                          <div className="w-12 h-1.5 bg-slate-200 dark:bg-slate-600 rounded-full overflow-hidden">
-                            <div className={`h-full rounded-full ${colors[i]}`} style={{ width: `${pct}%` }} />
-                          </div>
-                          <span className="text-xs">{pct}%</span>
+          <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200 mb-4">مقارنة المؤشرات</h3>
+          <div className="space-y-4">
+            {INDICATOR_META.map((ind) => {
+              const values = results.slice(0, textCount).map((r) =>
+                r ? Math.min(Math.round((r.statistical[ind.key] / ind.max) * 100), 100) : 0
+              )
+              return (
+                <div key={ind.key}>
+                  <div className="flex justify-between items-center mb-1.5">
+                    <span className="text-sm font-medium text-slate-700 dark:text-slate-300">{ind.label}</span>
+                    <div className="flex gap-3">
+                      {values.slice(0, textCount).map((v, i) => (
+                        <span key={i} className={`text-xs font-bold ${textColors[i]}`}>{v}%</span>
+                      ))}
+                    </div>
+                  </div>
+                  {/* Stacked diff bars */}
+                  <div className="space-y-1">
+                    {values.slice(0, textCount).map((v, i) => (
+                      <div key={i} className="flex items-center gap-2">
+                        <span className={`w-2 h-2 rounded-full ${colors[i]} shrink-0`} />
+                        <div className="flex-1 h-2 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
+                          <div
+                            className={`h-full rounded-full ${colors[i]} transition-all duration-700`}
+                            style={{ width: `${v}%` }}
+                          />
                         </div>
-                      </td>
-                    )
-                  })}
-                </tr>
-              ))}
-              {/* Final scores row */}
-              <tr className="font-bold">
-                <td className="py-2 text-slate-800 dark:text-slate-200">النتيجة النهائية</td>
-                {results.slice(0, textCount).map((r, i) => (
-                  <td key={i} className={`py-2 text-center ${textColors[i]}`}>
-                    {r ? `${r.result.percentage}%` : '-'}
-                  </td>
-                ))}
-              </tr>
-            </tbody>
-          </table>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+
+          {/* Final scores comparison */}
+          <div className="mt-6 pt-4 border-t border-slate-200 dark:border-slate-700">
+            <div className="flex items-center justify-center gap-6">
+              {results.slice(0, textCount).map((r, i) =>
+                r ? (
+                  <div key={i} className="text-center">
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <span className={`w-2.5 h-2.5 rounded-full ${colors[i]}`} />
+                      <span className="text-xs text-slate-500">{labels[i]}</span>
+                    </div>
+                    <span className={`text-2xl font-bold ${textColors[i]}`}>{r.result.percentage}%</span>
+                    <p className="text-[10px] text-slate-400 mt-0.5">{r.result.level}</p>
+                  </div>
+                ) : null
+              )}
+            </div>
           </div>
         </div>
 
-        {/* Radar overlay for first 2 */}
+        {/* Radar overlay */}
         {activeResults.length >= 2 && (
           <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4">
             <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200 mb-3 text-center">مخطط الرادار المقارن</h3>

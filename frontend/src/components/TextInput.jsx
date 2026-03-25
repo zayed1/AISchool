@@ -5,8 +5,25 @@ function TextInput({ value, onChange, wordCount }) {
   const isUnderMin = wordCount < 50
   const isOverMax = wordCount > 5000
   const [isDragging, setIsDragging] = useState(false)
-  const [urlMode, setUrlMode] = useState(false)
+  const [fileLoading, setFileLoading] = useState(null) // #46 — file type being loaded
   const fileInputRef = useRef(null)
+  const textareaRef = useRef(null)
+
+  // #18 — Auto-focus textarea on mount
+  useEffect(() => {
+    const timer = setTimeout(() => textareaRef.current?.focus(), 300)
+    return () => clearTimeout(timer)
+  }, [])
+
+  // #15 — Auto-expand textarea
+  useEffect(() => {
+    const el = textareaRef.current
+    if (el) {
+      el.style.height = 'auto'
+      const minH = window.innerWidth < 640 ? 200 : 256
+      el.style.height = Math.max(minH, el.scrollHeight) + 'px'
+    }
+  }, [value])
 
   // #6 — Drag & drop file support
   const handleDragOver = useCallback((e) => {
@@ -22,10 +39,19 @@ function TextInput({ value, onChange, wordCount }) {
   }, [])
 
   const readFile = useCallback((file) => {
+    // #46 — Show loading state with file type
+    const ext = file.name.split('.').pop()?.toLowerCase() || ''
+    setFileLoading(ext)
+
+    const onDone = (text) => {
+      setFileLoading(null)
+      onChange(text)
+    }
+
     // #14 — Support .txt, .docx (basic), .pdf (basic)
     if (file.type === 'text/plain' || file.name.endsWith('.txt')) {
       const reader = new FileReader()
-      reader.onload = (event) => onChange(event.target.result)
+      reader.onload = (event) => onDone(event.target.result)
       reader.readAsText(file, 'UTF-8')
     } else if (
       file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
@@ -45,11 +71,10 @@ function TextInput({ value, onChange, wordCount }) {
               .replace(/<[^>]+>/g, '')
               .replace(/\n{3,}/g, '\n\n')
               .trim()
-            onChange(text)
+            onDone(text)
           }
         } catch {
-          // Fallback: try reading as text
-          onChange('تعذر قراءة ملف Word. يرجى نسخ النص يدوياً.')
+          onDone('تعذر قراءة ملف Word. يرجى نسخ النص يدوياً.')
         }
       }
       reader.readAsArrayBuffer(file)
@@ -69,17 +94,18 @@ function TextInput({ value, onChange, wordCount }) {
           }
           const text = pages.join('\n\n').trim()
           if (text.length < 20) {
-            onChange('تعذر استخراج النص من PDF — قد يكون الملف عبارة عن صور. يرجى نسخ النص يدوياً.')
+            onDone('تعذر استخراج النص من PDF — قد يكون الملف عبارة عن صور. يرجى نسخ النص يدوياً.')
           } else {
-            onChange(text)
+            onDone(text)
           }
         } catch {
-          onChange('تعذر قراءة ملف PDF. يرجى نسخ النص من الملف ولصقه هنا.')
+          onDone('تعذر قراءة ملف PDF. يرجى نسخ النص من الملف ولصقه هنا.')
         }
       }
       reader.readAsArrayBuffer(file)
     } else {
-      onChange('صيغة الملف غير مدعومة. الصيغ المدعومة: .txt، .docx')
+      setFileLoading(null)
+      onChange('صيغة الملف غير مدعومة. الصيغ المدعومة: .txt، .docx، .pdf')
     }
   }, [onChange])
 
@@ -108,22 +134,39 @@ function TextInput({ value, onChange, wordCount }) {
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
       >
+        {/* #46 — Enhanced drag overlay with supported formats */}
         {isDragging && (
-          <div className="absolute inset-0 bg-primary-50 dark:bg-primary-900/30 bg-opacity-90 rounded-xl z-10 flex items-center justify-center border-2 border-dashed border-primary-400 dark:border-primary-600">
+          <div className="absolute inset-0 bg-primary-50/95 dark:bg-primary-900/40 backdrop-blur-sm rounded-xl z-10 flex items-center justify-center border-2 border-dashed border-primary-400 dark:border-primary-600 animate-scale-in">
             <div className="text-center">
-              <svg className="w-10 h-10 text-primary-500 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-10 h-10 text-primary-500 mx-auto mb-2 animate-bounce" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
               </svg>
               <p className="text-primary-600 dark:text-primary-400 font-medium">أفلت الملف هنا</p>
+              <div className="flex gap-2 justify-center mt-2">
+                {['PDF', 'DOCX', 'TXT'].map((fmt) => (
+                  <span key={fmt} className="text-[10px] px-2 py-0.5 bg-primary-100 dark:bg-primary-800/30 text-primary-600 dark:text-primary-400 rounded font-medium">{fmt}</span>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* #46 — File loading indicator */}
+        {fileLoading && (
+          <div className="absolute inset-0 bg-white/90 dark:bg-slate-800/90 backdrop-blur-sm rounded-xl z-10 flex items-center justify-center">
+            <div className="text-center">
+              <svg className="animate-spin h-8 w-8 text-primary-500 mx-auto mb-2" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+              <p className="text-sm font-medium text-slate-600 dark:text-slate-300">جارٍ قراءة ملف .{fileLoading}</p>
             </div>
           </div>
         )}
 
         <textarea
+          ref={textareaRef}
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder="الصق النص هنا للتحقق... أو اسحب ملف (.txt، .docx)"
-          className="w-full min-h-[200px] sm:min-h-[256px] p-4 text-base sm:text-lg leading-relaxed border-2 border-slate-200 dark:border-slate-600 rounded-xl focus:border-primary-500 focus:ring-2 focus:ring-primary-200 dark:focus:ring-primary-800 outline-none resize-y transition-colors bg-white dark:bg-slate-800 dark:text-slate-100 dark:placeholder-slate-500"
+          className="w-full min-h-[200px] sm:min-h-[256px] p-4 text-base sm:text-lg leading-relaxed border-2 border-slate-200 dark:border-slate-600 rounded-xl focus:border-primary-500 focus:ring-2 focus:ring-primary-200 dark:focus:ring-primary-800 outline-none resize-none transition-colors bg-white dark:bg-slate-800 dark:text-slate-100 dark:placeholder-slate-500"
           dir="rtl"
           aria-label="أدخل النص العربي للتحليل"
           role="textbox"

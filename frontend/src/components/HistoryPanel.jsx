@@ -44,7 +44,22 @@ function HistoryPanel({ onSelect }) {
     return { total: history.length, avgPct, aiCount, humanCount }
   }, [history])
 
-  if (history.length === 0) return null
+  // #9 — Show empty state instead of hiding
+  if (history.length === 0) {
+    return (
+      <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4">
+        <div className="flex items-center gap-3 text-slate-400 dark:text-slate-500">
+          <svg className="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          <div>
+            <p className="text-sm font-medium">سجلك فارغ</p>
+            <p className="text-xs">تحليلاتك السابقة ستظهر هنا — يمكنك البحث والفلترة والتصدير</p>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   const clearHistory = () => {
     localStorage.removeItem('analysis_history')

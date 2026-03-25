@@ -1,31 +1,91 @@
-from transformers import AutoTokenizer, AutoModelForSequenceClassification, pipeline
+import os
+import json
+import numpy as np
+from transformers import AutoTokenizer
+import onnxruntime as ort
+
 from backend.config import MODEL_NAME
 
-_classifier = None
+_session = None
 _tokenizer = None
+_label_map = None
+
+_ONNX_DIR = os.path.join(os.path.dirname(__file__), "onnx_model")
+_ONNX_PATH = os.path.join(_ONNX_DIR, "model.onnx")
 
 
 def load_model():
-    global _classifier, _tokenizer
-    if _classifier is None:
-        _tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
-        _model = AutoModelForSequenceClassification.from_pretrained(MODEL_NAME)
-        _classifier = pipeline(
-            "text-classification",
-            model=_model,
-            tokenizer=_tokenizer,
+    global _session, _tokenizer, _label_map
+
+    if _session is not None:
+        return _session
+
+    if os.path.isfile(_ONNX_PATH):
+        # Load ONNX model
+        _session = ort.InferenceSession(
+            _ONNX_PATH,
+            providers=["CPUExecutionProvider"],
         )
-    return _classifier
+        _tokenizer = AutoTokenizer.from_pretrained(_ONNX_DIR)
+        label_path = os.path.join(_ONNX_DIR, "label_map.json")
+        if os.path.isfile(label_path):
+            with open(label_path) as f:
+                _label_map = json.load(f)
+        else:
+            _label_map = {"0": "HUMAN", "1": "AI"}
+    else:
+        # Fallback: download and export on first run
+        _export_if_needed()
+        return load_model()
+
+    return _session
+
+
+def _export_if_needed():
+    """Auto-export ONNX model if not present."""
+    from backend.analysis.export_onnx import export
+    export()
 
 
 def is_model_loaded() -> bool:
-    return _classifier is not None
+    return _session is not None
+
+
+def _softmax(logits):
+    exp = np.exp(logits - np.max(logits, axis=-1, keepdims=True))
+    return exp / exp.sum(axis=-1, keepdims=True)
+
+
+def _classify(text: str) -> dict:
+    """Classify a single text. Returns {label, score}."""
+    load_model()
+
+    inputs = _tokenizer(
+        text,
+        return_tensors="np",
+        padding=True,
+        truncation=True,
+        max_length=512,
+    )
+
+    ort_inputs = {
+        "input_ids": inputs["input_ids"].astype(np.int64),
+        "attention_mask": inputs["attention_mask"].astype(np.int64),
+    }
+
+    logits = _session.run(None, ort_inputs)[0]
+    probs = _softmax(logits)[0]
+
+    predicted_idx = int(np.argmax(probs))
+    label = _label_map.get(str(predicted_idx), "HUMAN")
+    confidence = float(probs[predicted_idx])
+
+    return {"label": label, "score": confidence}
 
 
 def _chunk_text(text: str, max_tokens: int = 450) -> list[str]:
     """Split text into chunks that fit within the model's token limit."""
-    if _tokenizer is None:
-        load_model()
+    load_model()
 
     tokens = _tokenizer.encode(text, add_special_tokens=False)
     if len(tokens) <= max_tokens:
@@ -41,12 +101,11 @@ def _chunk_text(text: str, max_tokens: int = 450) -> list[str]:
 
 
 def predict(text: str) -> dict:
-    classifier = load_model()
-
+    load_model()
     chunks = _chunk_text(text)
 
     if len(chunks) == 1:
-        result = classifier(chunks[0])[0]
+        result = _classify(chunks[0])
         label = result["label"]
         confidence = result["score"]
         ml_score = confidence if label.upper() == "AI" else 1 - confidence
@@ -58,17 +117,15 @@ def predict(text: str) -> dict:
 
     total_weight = 0.0
     weighted_score = 0.0
-    all_results = []
 
     for chunk in chunks:
-        result = classifier(chunk)[0]
+        result = _classify(chunk)
         label = result["label"]
         confidence = result["score"]
         chunk_ml_score = confidence if label.upper() == "AI" else 1 - confidence
         weight = confidence
         weighted_score += chunk_ml_score * weight
         total_weight += weight
-        all_results.append(result)
 
     avg_ml_score = weighted_score / total_weight if total_weight > 0 else 0.5
     final_label = "AI" if avg_ml_score >= 0.5 else "HUMAN"
@@ -83,7 +140,7 @@ def predict(text: str) -> dict:
 
 def predict_sentences(sentences: list[str]) -> list[dict]:
     """Predict AI probability for individual sentences."""
-    classifier = load_model()
+    load_model()
     results = []
 
     for sentence in sentences:
@@ -96,7 +153,7 @@ def predict_sentences(sentences: list[str]) -> list[dict]:
             continue
 
         try:
-            result = classifier(sentence)[0]
+            result = _classify(sentence)
             label = result["label"]
             confidence = result["score"]
             score = confidence if label.upper() == "AI" else 1 - confidence

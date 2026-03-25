@@ -6,6 +6,8 @@ import OfflineBanner from './components/OfflineBanner'
 import Header from './components/Header'
 import SkeletonReport from './components/SkeletonReport'
 import OnboardingTour from './components/OnboardingTour'
+import PageTransition from './components/PageTransition'
+import BackToTop from './components/BackToTop'
 import { parseShareLink } from './utils/share'
 
 const Home = lazy(() => import('./pages/Home'))
@@ -89,17 +91,19 @@ function AppContent() {
             <SkeletonReport />
           </div>
         }>
-          {view === 'howItWorks' ? <HowItWorks onClose={goHome} />
-          : view === 'compare' ? <CompareView onBack={goHome} />
-          : view === 'apiDocs' ? <ApiDocs onClose={goHome} />
-          : view === 'diff' ? <DiffTracker onClose={goHome} />
-          : view === 'batch' ? <BatchAnalysis onClose={goHome} />
-          : view === 'teacher' ? <TeacherMode onClose={goHome} />
-          : view === 'admin' ? <AdminDashboard onClose={goHome} />
-          : view === 'wordCounter' ? <WordCounter onClose={goHome} />
-          : view === 'transformer' ? <TextTransformer onClose={goHome} />
-          : view === 'report' && reportData ? <Report data={reportData} onBack={goHome} />
-          : <Home onResult={handleResult} />}
+          <PageTransition viewKey={view}>
+            {view === 'howItWorks' ? <HowItWorks onClose={goHome} />
+            : view === 'compare' ? <CompareView onBack={goHome} />
+            : view === 'apiDocs' ? <ApiDocs onClose={goHome} />
+            : view === 'diff' ? <DiffTracker onClose={goHome} />
+            : view === 'batch' ? <BatchAnalysis onClose={goHome} />
+            : view === 'teacher' ? <TeacherMode onClose={goHome} />
+            : view === 'admin' ? <AdminDashboard onClose={goHome} />
+            : view === 'wordCounter' ? <WordCounter onClose={goHome} />
+            : view === 'transformer' ? <TextTransformer onClose={goHome} />
+            : view === 'report' && reportData ? <Report data={reportData} onBack={goHome} />
+            : <Home onResult={handleResult} />}
+          </PageTransition>
         </Suspense>
       </main>
 
@@ -109,6 +113,7 @@ function AppContent() {
 
       <OfflineBanner />
       <OnboardingTour />
+      <BackToTop />
     </div>
   )
 }

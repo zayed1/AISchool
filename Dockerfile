@@ -6,22 +6,29 @@ RUN npm ci
 COPY frontend/ .
 RUN npm run build
 
-# --- Stage 2: Backend + serve frontend ---
+# --- Stage 2: Export ML model to ONNX (temporary, not in final image) ---
+FROM python:3.11-slim AS model-export
+WORKDIR /export
+RUN pip install --no-cache-dir torch==2.5.* transformers==4.48.* onnxruntime==1.21.* "numpy<2"
+COPY backend/analysis/export_onnx.py ./export_onnx.py
+ENV ONNX_OUTPUT_DIR=/export/onnx_model
+RUN python export_onnx.py
+
+# --- Stage 3: Final lightweight image (no PyTorch!) ---
 FROM python:3.11-slim
 WORKDIR /app
 
-# Install backend dependencies
+# Install production dependencies (no torch — only ~200MB instead of ~2.5GB)
 COPY backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-
-# Pre-download the ML model during build
-RUN python -c "from transformers import pipeline; pipeline('text-classification', model='sabaridsnfuji/arabic-ai-text-detector')"
 
 # Copy backend code
 COPY backend/ ./backend/
 
-# Copy built frontend into static directory
+# Copy exported ONNX model from build stage
+COPY --from=model-export /export/onnx_model/ ./backend/analysis/onnx_model/
+
+# Copy built frontend
 COPY --from=frontend-build /app/dist ./static/
 
-# Start server from root so imports work
 CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]
