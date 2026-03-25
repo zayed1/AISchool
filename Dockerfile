@@ -36,8 +36,8 @@ RUN ls -lh ./backend/analysis/onnx_model/model.onnx && echo "ONNX model present 
 # Copy built frontend
 COPY --from=frontend-build /app/dist ./static/
 
-# Railway uses PORT env var
+# Railway sets PORT env var — app must listen on it
 ENV PORT=8000
 EXPOSE 8000
 
-CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["sh", "-c", "uvicorn backend.main:app --host 0.0.0.0 --port $PORT"]
