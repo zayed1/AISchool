@@ -9,7 +9,7 @@ RUN npm run build
 # --- Stage 2: Export ML model to ONNX (temporary, not in final image) ---
 FROM python:3.11-slim AS model-export
 WORKDIR /export
-RUN pip install --no-cache-dir torch==2.5.* transformers==4.48.* onnxruntime==1.21.* "numpy<2"
+RUN pip install --no-cache-dir torch==2.5.* transformers==4.48.* onnxruntime==1.21.* onnx "numpy<2"
 COPY backend/analysis/export_onnx.py ./export_onnx.py
 ENV ONNX_OUTPUT_DIR=/export/onnx_model
 RUN python export_onnx.py
