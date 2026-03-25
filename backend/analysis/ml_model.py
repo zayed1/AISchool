@@ -1,60 +1,64 @@
 import os
 import json
 import numpy as np
-from transformers import AutoTokenizer
-import onnxruntime as ort
 
 from backend.config import MODEL_NAME
 
 _session = None
 _tokenizer = None
 _label_map = None
+_ml_available = False  # Track whether ML model loaded successfully
 
 _ONNX_DIR = os.path.join(os.path.dirname(__file__), "onnx_model")
 _ONNX_PATH = os.path.join(_ONNX_DIR, "model.onnx")
 
 
 def load_model():
-    global _session, _tokenizer, _label_map
+    """Load ONNX model. Returns True if loaded, False if unavailable (graceful degradation)."""
+    global _session, _tokenizer, _label_map, _ml_available
 
     if _session is not None:
-        return _session
+        return True
 
-    if os.path.isfile(_ONNX_PATH):
-        # Load ONNX model
+    if not os.path.isfile(_ONNX_PATH):
+        print(f"[WARN] ONNX model not found at {_ONNX_PATH} — running in statistical-only mode", flush=True)
+        _ml_available = False
+        return False
+
+    try:
+        import onnxruntime as ort
+        print(f"[BOOT] Loading ONNX model from {_ONNX_PATH}...", flush=True)
         _session = ort.InferenceSession(
             _ONNX_PATH,
             providers=["CPUExecutionProvider"],
         )
+        print("[BOOT] ONNX session created OK", flush=True)
+
+        from transformers import AutoTokenizer
         _tokenizer = AutoTokenizer.from_pretrained(_ONNX_DIR)
+        print("[BOOT] Tokenizer loaded OK", flush=True)
+
         label_path = os.path.join(_ONNX_DIR, "label_map.json")
         if os.path.isfile(label_path):
             with open(label_path) as f:
                 _label_map = json.load(f)
         else:
             _label_map = {"0": "HUMAN", "1": "AI"}
-    else:
-        # Fallback: download and export on first run
-        _export_if_needed()
-        return load_model()
 
-    return _session
+        _ml_available = True
+        print("[BOOT] ML model fully loaded", flush=True)
+        return True
 
-
-def _export_if_needed():
-    """Auto-export ONNX model if not present. Only works when torch is installed (build stage)."""
-    try:
-        from backend.analysis.export_onnx import export
-        export()
-    except ImportError:
-        raise RuntimeError(
-            f"ONNX model not found at {_ONNX_PATH} and PyTorch is not installed to export it. "
-            "The model should be pre-exported during the Docker build stage."
-        )
+    except Exception as e:
+        print(f"[WARN] Failed to load ONNX model: {e} — running in statistical-only mode", flush=True)
+        _session = None
+        _tokenizer = None
+        _ml_available = False
+        return False
 
 
 def is_model_loaded() -> bool:
-    return _session is not None
+    return _ml_available and _session is not None
 
 
 def _softmax(logits):
@@ -64,7 +68,8 @@ def _softmax(logits):
 
 def _classify(text: str) -> dict:
     """Classify a single text. Returns {label, score}."""
-    load_model()
+    if not _ml_available or _session is None:
+        return {"label": "HUMAN", "score": 0.5}
 
     inputs = _tokenizer(
         text,
@@ -91,7 +96,8 @@ def _classify(text: str) -> dict:
 
 def _chunk_text(text: str, max_tokens: int = 450) -> list[str]:
     """Split text into chunks that fit within the model's token limit."""
-    load_model()
+    if not _ml_available or _tokenizer is None:
+        return [text]
 
     tokens = _tokenizer.encode(text, add_special_tokens=False)
     if len(tokens) <= max_tokens:
@@ -107,7 +113,14 @@ def _chunk_text(text: str, max_tokens: int = 450) -> list[str]:
 
 
 def predict(text: str) -> dict:
-    load_model()
+    """Predict AI probability. Returns neutral 0.5 if ML model unavailable."""
+    if not _ml_available:
+        return {
+            "label": "HUMAN",
+            "confidence": 0.5,
+            "ml_score": 0.5,
+        }
+
     chunks = _chunk_text(text)
 
     if len(chunks) == 1:
@@ -146,11 +159,10 @@ def predict(text: str) -> dict:
 
 def predict_sentences(sentences: list[str]) -> list[dict]:
     """Predict AI probability for individual sentences."""
-    load_model()
     results = []
 
     for sentence in sentences:
-        if len(sentence.split()) < 3:
+        if not _ml_available or len(sentence.split()) < 3:
             results.append({
                 "text": sentence,
                 "score": 0.5,
