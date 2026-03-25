@@ -1,4 +1,4 @@
-"""Export HuggingFace model to ONNX format for lightweight inference."""
+"""Export HuggingFace model to ONNX format with INT8 quantization for lightweight inference."""
 import os
 import json
 
@@ -30,14 +30,15 @@ def export():
     # Create dummy input
     dummy = tokenizer("هذا نص تجريبي", return_tensors="pt", padding="max_length", truncation=True, max_length=512)
 
-    # Export to ONNX
+    # Export to ONNX (full precision first)
+    onnx_fp32_path = os.path.join(OUTPUT_DIR, "model_fp32.onnx")
     onnx_path = os.path.join(OUTPUT_DIR, "model.onnx")
-    print(f"Exporting to ONNX: {onnx_path}")
+    print(f"Exporting to ONNX: {onnx_fp32_path}")
 
     torch.onnx.export(
         model,
         (dummy["input_ids"], dummy["attention_mask"]),
-        onnx_path,
+        onnx_fp32_path,
         input_names=["input_ids", "attention_mask"],
         output_names=["logits"],
         dynamic_axes={
@@ -48,7 +49,27 @@ def export():
         opset_version=14,
     )
 
-    # Verify
+    fp32_size = os.path.getsize(onnx_fp32_path) / (1024 * 1024)
+    print(f"FP32 model size: {fp32_size:.1f} MB")
+
+    # Quantize to INT8 — reduces model size by ~75% and memory usage significantly
+    try:
+        from onnxruntime.quantization import quantize_dynamic, QuantType
+        print("Quantizing to INT8...")
+        quantize_dynamic(
+            onnx_fp32_path,
+            onnx_path,
+            weight_type=QuantType.QUInt8,
+        )
+        int8_size = os.path.getsize(onnx_path) / (1024 * 1024)
+        print(f"INT8 model size: {int8_size:.1f} MB (reduced {fp32_size/int8_size:.1f}x)")
+        # Remove fp32 model to save space
+        os.remove(onnx_fp32_path)
+    except Exception as e:
+        print(f"Quantization failed: {e} — using FP32 model")
+        os.rename(onnx_fp32_path, onnx_path)
+
+    # Verify quantized model
     import onnxruntime as ort
     import numpy as np
     session = ort.InferenceSession(onnx_path)
@@ -62,10 +83,10 @@ def export():
         pt_out = model(dummy["input_ids"], dummy["attention_mask"])
     pt_logits = pt_out.logits.numpy()
     diff = abs(pt_logits - ort_out[0]).max()
-    print(f"Max difference PyTorch vs ONNX: {diff:.6f}")
+    print(f"Max difference PyTorch vs quantized ONNX: {diff:.6f}")
 
     model_size = os.path.getsize(onnx_path) / (1024 * 1024)
-    print(f"ONNX model size: {model_size:.1f} MB")
+    print(f"Final ONNX model size: {model_size:.1f} MB")
     print("Export successful!")
 
 

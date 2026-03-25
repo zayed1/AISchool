@@ -2,26 +2,25 @@ import os
 import json
 import numpy as np
 
-from backend.config import MODEL_NAME
-
 _session = None
 _tokenizer = None
 _label_map = None
-_ml_available = False  # Track whether ML model loaded successfully
+_ml_available = False
 
 _ONNX_DIR = os.path.join(os.path.dirname(__file__), "onnx_model")
 _ONNX_PATH = os.path.join(_ONNX_DIR, "model.onnx")
+_TOKENIZER_PATH = os.path.join(_ONNX_DIR, "tokenizer.json")
 
 
 def load_model():
-    """Load ONNX model. Returns True if loaded, False if unavailable (graceful degradation)."""
+    """Load ONNX model + lightweight tokenizer. Returns True if loaded, False otherwise."""
     global _session, _tokenizer, _label_map, _ml_available
 
     if _session is not None:
         return True
 
     if not os.path.isfile(_ONNX_PATH):
-        print(f"[WARN] ONNX model not found at {_ONNX_PATH} — running in statistical-only mode", flush=True)
+        print(f"[WARN] ONNX model not found at {_ONNX_PATH} — statistical-only mode", flush=True)
         _ml_available = False
         return False
 
@@ -34,9 +33,12 @@ def load_model():
         )
         print("[BOOT] ONNX session created OK", flush=True)
 
-        from transformers import AutoTokenizer
-        _tokenizer = AutoTokenizer.from_pretrained(_ONNX_DIR)
-        print("[BOOT] Tokenizer loaded OK", flush=True)
+        # Use lightweight tokenizers library instead of heavy transformers
+        from tokenizers import Tokenizer
+        _tokenizer = Tokenizer.from_file(_TOKENIZER_PATH)
+        _tokenizer.enable_padding(pad_id=0, pad_token="[PAD]", length=512)
+        _tokenizer.enable_truncation(max_length=512)
+        print("[BOOT] Tokenizer loaded OK (lightweight)", flush=True)
 
         label_path = os.path.join(_ONNX_DIR, "label_map.json")
         if os.path.isfile(label_path):
@@ -50,7 +52,7 @@ def load_model():
         return True
 
     except Exception as e:
-        print(f"[WARN] Failed to load ONNX model: {e} — running in statistical-only mode", flush=True)
+        print(f"[WARN] Failed to load model: {e} — statistical-only mode", flush=True)
         _session = None
         _tokenizer = None
         _ml_available = False
@@ -66,25 +68,23 @@ def _softmax(logits):
     return exp / exp.sum(axis=-1, keepdims=True)
 
 
+def _tokenize(text: str) -> dict:
+    """Tokenize text using lightweight tokenizers library. Returns numpy arrays."""
+    encoding = _tokenizer.encode(text)
+    return {
+        "input_ids": np.array([encoding.ids], dtype=np.int64),
+        "attention_mask": np.array([encoding.attention_mask], dtype=np.int64),
+    }
+
+
 def _classify(text: str) -> dict:
     """Classify a single text. Returns {label, score}."""
     if not _ml_available or _session is None:
         return {"label": "HUMAN", "score": 0.5}
 
-    inputs = _tokenizer(
-        text,
-        return_tensors="np",
-        padding=True,
-        truncation=True,
-        max_length=512,
-    )
+    inputs = _tokenize(text)
 
-    ort_inputs = {
-        "input_ids": inputs["input_ids"].astype(np.int64),
-        "attention_mask": inputs["attention_mask"].astype(np.int64),
-    }
-
-    logits = _session.run(None, ort_inputs)[0]
+    logits = _session.run(None, inputs)[0]
     probs = _softmax(logits)[0]
 
     predicted_idx = int(np.argmax(probs))
@@ -94,22 +94,41 @@ def _classify(text: str) -> dict:
     return {"label": label, "score": confidence}
 
 
+def _get_token_count(text: str) -> int:
+    """Get token count without padding."""
+    encoding = _tokenizer.encode(text)
+    # Count non-padding tokens (before padding was applied)
+    return sum(1 for t in encoding.attention_mask if t == 1)
+
+
 def _chunk_text(text: str, max_tokens: int = 450) -> list[str]:
     """Split text into chunks that fit within the model's token limit."""
     if not _ml_available or _tokenizer is None:
         return [text]
 
-    tokens = _tokenizer.encode(text, add_special_tokens=False)
-    if len(tokens) <= max_tokens:
+    token_count = _get_token_count(text)
+    if token_count <= max_tokens:
         return [text]
 
+    # Split by sentences/words and group into chunks
+    words = text.split()
     chunks = []
-    for i in range(0, len(tokens), max_tokens):
-        chunk_tokens = tokens[i:i + max_tokens]
-        chunk_text = _tokenizer.decode(chunk_tokens, skip_special_tokens=True)
-        chunks.append(chunk_text)
+    current_words = []
 
-    return chunks
+    for word in words:
+        current_words.append(word)
+        # Check token count periodically (every 20 words for efficiency)
+        if len(current_words) % 20 == 0:
+            chunk_text = " ".join(current_words)
+            if _get_token_count(chunk_text) >= max_tokens:
+                # Save current chunk (minus last word) and start new one
+                chunks.append(" ".join(current_words[:-1]))
+                current_words = [word]
+
+    if current_words:
+        chunks.append(" ".join(current_words))
+
+    return chunks if chunks else [text]
 
 
 def predict(text: str) -> dict:
