@@ -30,7 +30,11 @@ def get_stats():
 async def lifespan(app: FastAPI):
     _stats["start_time"] = time.time()
 
-    load_model()
+    try:
+        load_model()
+    except Exception as e:
+        print(f"[FATAL] Failed to load ML model: {e}", flush=True)
+        raise
 
     # #15 — Warm cache: run a test prediction to warm up the model
     try:
@@ -39,8 +43,9 @@ async def lifespan(app: FastAPI):
         test_text = "هذا نص تجريبي لتسخين النموذج " * 10
         stat_analyze(test_text)
         predict(test_text)
-    except Exception:
-        pass
+        print("[INFO] Model warm-up complete", flush=True)
+    except Exception as e:
+        print(f"[WARN] Model warm-up failed: {e}", flush=True)
 
     yield
 

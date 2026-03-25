@@ -42,9 +42,15 @@ def load_model():
 
 
 def _export_if_needed():
-    """Auto-export ONNX model if not present."""
-    from backend.analysis.export_onnx import export
-    export()
+    """Auto-export ONNX model if not present. Only works when torch is installed (build stage)."""
+    try:
+        from backend.analysis.export_onnx import export
+        export()
+    except ImportError:
+        raise RuntimeError(
+            f"ONNX model not found at {_ONNX_PATH} and PyTorch is not installed to export it. "
+            "The model should be pre-exported during the Docker build stage."
+        )
 
 
 def is_model_loaded() -> bool:
