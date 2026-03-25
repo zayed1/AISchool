@@ -4,15 +4,33 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+# Early diagnostics — print before any heavy imports
+print("[BOOT] Starting application...", flush=True)
+print(f"[BOOT] Python {sys.version}", flush=True)
+print(f"[BOOT] Working dir: {os.getcwd()}", flush=True)
+
+# Check if ONNX model exists before importing anything heavy
+_onnx_check = os.path.join(os.path.dirname(os.path.abspath(__file__)), "analysis", "onnx_model", "model.onnx")
+print(f"[BOOT] ONNX model path: {_onnx_check}", flush=True)
+print(f"[BOOT] ONNX model exists: {os.path.isfile(_onnx_check)}", flush=True)
+if os.path.isdir(os.path.dirname(_onnx_check)):
+    print(f"[BOOT] ONNX dir contents: {os.listdir(os.path.dirname(_onnx_check))}", flush=True)
+else:
+    print(f"[BOOT] ONNX dir does NOT exist: {os.path.dirname(_onnx_check)}", flush=True)
+
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
+print("[BOOT] FastAPI imported OK", flush=True)
+
 from backend.config import ALLOWED_ORIGINS
-from backend.analysis.ml_model import load_model
+from backend.analysis.ml_model import load_model, is_model_loaded
 from backend.api.routes import router
+
+print("[BOOT] All modules imported OK", flush=True)
 
 # #20 — Global stats tracking
 _stats = {
@@ -30,23 +48,30 @@ def get_stats():
 async def lifespan(app: FastAPI):
     _stats["start_time"] = time.time()
 
+    # Load model — graceful degradation if it fails
+    print("[BOOT] Loading ML model...", flush=True)
     try:
-        load_model()
+        loaded = load_model()
+        if loaded:
+            print("[BOOT] ML model loaded successfully", flush=True)
+        else:
+            print("[BOOT] ML model unavailable — statistical-only mode", flush=True)
     except Exception as e:
-        print(f"[FATAL] Failed to load ML model: {e}", flush=True)
-        raise
+        print(f"[WARN] ML model load error: {e} — continuing in statistical-only mode", flush=True)
 
-    # #15 — Warm cache: run a test prediction to warm up the model
+    # #15 — Warm cache: run a test prediction
     try:
         from backend.analysis.statistical import analyze as stat_analyze
         from backend.analysis.ml_model import predict
         test_text = "هذا نص تجريبي لتسخين النموذج " * 10
         stat_analyze(test_text)
-        predict(test_text)
-        print("[INFO] Model warm-up complete", flush=True)
+        if is_model_loaded():
+            predict(test_text)
+        print("[BOOT] Warm-up complete", flush=True)
     except Exception as e:
-        print(f"[WARN] Model warm-up failed: {e}", flush=True)
+        print(f"[WARN] Warm-up failed: {e}", flush=True)
 
+    print("[BOOT] Application startup complete!", flush=True)
     yield
 
 
