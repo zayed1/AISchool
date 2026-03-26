@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { countWords } from '../utils/debounce'
 
-function TextInput({ value, onChange, wordCount }) {
+function TextInput({ value, onChange, wordCount, onFileError }) {
   const isUnderMin = wordCount < 50
   const isOverMax = wordCount > 5000
   const [isDragging, setIsDragging] = useState(false)
@@ -74,7 +74,8 @@ function TextInput({ value, onChange, wordCount }) {
             onDone(text)
           }
         } catch {
-          onDone('تعذر قراءة ملف Word. يرجى نسخ النص يدوياً.')
+          setFileLoading(null)
+          onFileError?.('تعذر قراءة ملف Word. يرجى نسخ النص يدوياً.')
         }
       }
       reader.readAsArrayBuffer(file)
@@ -94,18 +95,20 @@ function TextInput({ value, onChange, wordCount }) {
           }
           const text = pages.join('\n\n').trim()
           if (text.length < 20) {
-            onDone('تعذر استخراج النص من PDF — قد يكون الملف عبارة عن صور. يرجى نسخ النص يدوياً.')
+            setFileLoading(null)
+            onFileError?.('تعذر استخراج النص من PDF — قد يكون الملف عبارة عن صور.')
           } else {
             onDone(text)
           }
         } catch {
-          onDone('تعذر قراءة ملف PDF. يرجى نسخ النص من الملف ولصقه هنا.')
+          setFileLoading(null)
+          onFileError?.('تعذر قراءة ملف PDF. يرجى نسخ النص من الملف ولصقه هنا.')
         }
       }
       reader.readAsArrayBuffer(file)
     } else {
       setFileLoading(null)
-      onChange('صيغة الملف غير مدعومة. الصيغ المدعومة: .txt، .docx، .pdf')
+      onFileError?.('صيغة الملف غير مدعومة. الصيغ المدعومة: .txt، .docx، .pdf')
     }
   }, [onChange])
 

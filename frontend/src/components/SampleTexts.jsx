@@ -1,4 +1,6 @@
 // #19 — Sample texts for quick testing
+import { useState } from 'react'
+
 const samples = [
   {
     id: 'human',
@@ -16,7 +18,23 @@ const samples = [
   },
 ]
 
-function SampleTexts({ onSelect }) {
+function SampleTexts({ onSelect, hasExistingText }) {
+  const [pendingSample, setPendingSample] = useState(null)
+
+  const handleSelect = (sample) => {
+    if (hasExistingText) {
+      if (pendingSample === sample.id) {
+        onSelect(sample.text)
+        setPendingSample(null)
+      } else {
+        setPendingSample(sample.id)
+        setTimeout(() => setPendingSample(null), 3000)
+      }
+    } else {
+      onSelect(sample.text)
+    }
+  }
+
   return (
     <div className="space-y-2">
       <p className="text-xs text-slate-400 dark:text-slate-500 text-center">أو جرّب نصاً نموذجياً:</p>
@@ -24,14 +42,18 @@ function SampleTexts({ onSelect }) {
         {samples.map((sample) => (
           <button
             key={sample.id}
-            onClick={() => onSelect(sample.text)}
-            className="flex-1 group relative py-2.5 px-3 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-primary-300 dark:hover:border-primary-700 transition-all bg-white dark:bg-slate-800 text-center"
+            onClick={() => handleSelect(sample)}
+            className={`flex-1 group relative py-2.5 px-3 rounded-xl border transition-all bg-white dark:bg-slate-800 text-center ${pendingSample === sample.id ? 'border-amber-400 dark:border-amber-600 ring-1 ring-amber-200 dark:ring-amber-800' : 'border-slate-200 dark:border-slate-700 hover:border-primary-300 dark:hover:border-primary-700'}`}
           >
             <div className="flex items-center justify-center gap-2">
               <span className={`w-2 h-2 rounded-full ${sample.color === 'green' ? 'bg-green-400' : 'bg-red-400'}`} />
-              <span className="text-sm font-medium text-slate-600 dark:text-slate-300">{sample.label}</span>
+              <span className="text-sm font-medium text-slate-600 dark:text-slate-300">
+                {pendingSample === sample.id ? 'اضغط مرة أخرى' : sample.label}
+              </span>
             </div>
-            <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">{sample.description}</p>
+            <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">
+              {pendingSample === sample.id ? 'سيتم استبدال النص الحالي' : sample.description}
+            </p>
           </button>
         ))}
       </div>

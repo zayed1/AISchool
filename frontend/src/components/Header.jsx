@@ -40,6 +40,8 @@ function Header({ onCompareToggle, isCompareMode, onSettingsOpen, onHowItWorksOp
               <button
                 onClick={() => setMenuOpen(!menuOpen)}
                 className="p-2 rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 dark:text-slate-500 transition-colors"
+                aria-label="القائمة الرئيسية"
+                aria-expanded={menuOpen}
                 title="المزيد"
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
