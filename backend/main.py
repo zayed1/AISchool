@@ -4,19 +4,19 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-# Early diagnostics — print before any heavy imports
-print("[BOOT] Starting application...", flush=True)
-print(f"[BOOT] Python {sys.version}", flush=True)
-print(f"[BOOT] Working dir: {os.getcwd()}", flush=True)
+from backend.utils.logging import get_logger
 
-# Check if ONNX model exists before importing anything heavy
+log = get_logger("main")
+
+# Early diagnostics
+log.info("Starting application...")
+log.info(f"Python {sys.version}")
+log.info(f"Working dir: {os.getcwd()}")
+
 _onnx_check = os.path.join(os.path.dirname(os.path.abspath(__file__)), "analysis", "onnx_model", "model.onnx")
-print(f"[BOOT] ONNX model path: {_onnx_check}", flush=True)
-print(f"[BOOT] ONNX model exists: {os.path.isfile(_onnx_check)}", flush=True)
+log.info(f"ONNX model exists: {os.path.isfile(_onnx_check)}")
 if os.path.isdir(os.path.dirname(_onnx_check)):
-    print(f"[BOOT] ONNX dir contents: {os.listdir(os.path.dirname(_onnx_check))}", flush=True)
-else:
-    print(f"[BOOT] ONNX dir does NOT exist: {os.path.dirname(_onnx_check)}", flush=True)
+    log.info(f"ONNX dir contents: {os.listdir(os.path.dirname(_onnx_check))}")
 
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
@@ -24,15 +24,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
-print("[BOOT] FastAPI imported OK", flush=True)
+log.info("FastAPI imported OK")
 
 from backend.config import ALLOWED_ORIGINS
 from backend.analysis.ml_model import load_model, is_model_loaded
 from backend.api.routes import router
 
-print("[BOOT] All modules imported OK", flush=True)
+log.info("All modules imported OK")
 
-# #20 — Global stats tracking
+# Global stats tracking
 _stats = {
     "start_time": 0,
     "total_analyses": 0,
@@ -48,18 +48,17 @@ def get_stats():
 async def lifespan(app: FastAPI):
     _stats["start_time"] = time.time()
 
-    # Load model — graceful degradation if it fails
-    print("[BOOT] Loading ML model...", flush=True)
+    log.info("Loading ML model...")
     try:
         loaded = load_model()
         if loaded:
-            print("[BOOT] ML model loaded successfully", flush=True)
+            log.info("ML model loaded successfully")
         else:
-            print("[BOOT] ML model unavailable — statistical-only mode", flush=True)
+            log.warning("ML model unavailable — statistical-only mode")
     except Exception as e:
-        print(f"[WARN] ML model load error: {e} — continuing in statistical-only mode", flush=True)
+        log.warning(f"ML model load error: {e} — continuing in statistical-only mode")
 
-    # #15 — Warm cache: run a test prediction
+    # Warm cache
     try:
         from backend.analysis.statistical import analyze as stat_analyze
         from backend.analysis.ml_model import predict
@@ -67,11 +66,11 @@ async def lifespan(app: FastAPI):
         stat_analyze(test_text)
         if is_model_loaded():
             predict(test_text)
-        print("[BOOT] Warm-up complete", flush=True)
+        log.info("Warm-up complete")
     except Exception as e:
-        print(f"[WARN] Warm-up failed: {e}", flush=True)
+        log.warning(f"Warm-up failed: {e}")
 
-    print("[BOOT] Application startup complete!", flush=True)
+    log.info("Application startup complete!")
     yield
 
 
@@ -81,24 +80,24 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# B9 — Tighter CORS: only allow needed methods/headers
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization", "X-Admin-Key"],
 )
 
 app.include_router(router)
 
-# Serve frontend static files in production (Railway single-service deploy)
+# Serve frontend static files in production
 _static_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "static")
 if os.path.isdir(_static_dir):
     app.mount("/assets", StaticFiles(directory=os.path.join(_static_dir, "assets")), name="assets")
 
     @app.get("/{full_path:path}")
     async def serve_spa(full_path: str):
-        """Serve frontend SPA — all non-API routes return index.html."""
         file_path = os.path.join(_static_dir, full_path)
         if os.path.isfile(file_path):
             return FileResponse(file_path)

@@ -47,6 +47,9 @@ class StatisticalResult(BaseModel):
     opener_diversity: float = 0.5
     subordinate_ratio: float = 0.0
     passive_ratio: float = 0.0
+    avg_word_length: float = 0.0
+    punctuation_density: float = 0.0
+    trigram_repetition: float = 0.0
     statistical_score: float
 
 
