@@ -310,11 +310,14 @@ def _score_trigram_repetition(ratio: float) -> float:
 
 
 def _score_ttr(ttr: float) -> float:
-    if ttr <= 0.3: return 0.95
-    elif ttr <= 0.4: return 0.75
-    elif ttr <= 0.5: return 0.55
-    elif ttr <= 0.6: return 0.35
-    else: return 0.15
+    # AI text often has HIGH TTR (formal, no repetition) OR very LOW (template)
+    # Human text is moderate. Both extremes are suspicious.
+    if ttr <= 0.3: return 0.9
+    elif ttr <= 0.4: return 0.7
+    elif ttr <= 0.5: return 0.5
+    elif ttr <= 0.65: return 0.35
+    elif ttr <= 0.75: return 0.55  # suspiciously high = AI
+    else: return 0.7  # very high = likely AI
 
 
 def _score_cv(cv: float) -> float:
@@ -338,11 +341,13 @@ def _score_connectors(density: float) -> float:
 
 
 def _score_errors(ratio: float) -> float:
-    if ratio >= 0.05: return 0.1
-    elif ratio >= 0.02: return 0.3
-    elif ratio >= 0.01: return 0.5
-    elif ratio >= 0.005: return 0.7
-    else: return 0.9
+    # AI text has almost ZERO errors — that's a strong signal
+    if ratio >= 0.05: return 0.05
+    elif ratio >= 0.02: return 0.15
+    elif ratio >= 0.01: return 0.35
+    elif ratio >= 0.005: return 0.6
+    elif ratio >= 0.001: return 0.8
+    else: return 0.95  # zero errors = very likely AI
 
 
 def _score_burstiness(burstiness: float) -> float:
@@ -354,11 +359,12 @@ def _score_burstiness(burstiness: float) -> float:
 
 
 def _score_opener_diversity(diversity: float) -> float:
-    """Low diversity = more AI-like."""
+    """Both extremes are suspicious. Low = repetitive AI. Very high = unnaturally varied AI."""
     if diversity <= 0.3: return 0.9
     elif diversity <= 0.5: return 0.7
     elif diversity <= 0.7: return 0.4
-    else: return 0.15
+    elif diversity <= 0.85: return 0.25
+    else: return 0.45  # perfect diversity is also suspicious
 
 
 def _score_subordinate(ratio: float) -> float:

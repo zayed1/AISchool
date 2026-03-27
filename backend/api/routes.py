@@ -15,6 +15,7 @@ from backend.api.schemas import AnalyzeRequest, AnalyzeResponse, HealthResponse
 from backend.analysis.statistical import analyze as statistical_analyze, split_sentences
 from backend.analysis.ml_model import predict, predict_sentences, is_model_loaded
 from backend.analysis.combiner import combine_scores
+from backend.analysis.ai_analyzer import analyze_with_ai, is_available as is_ai_available
 from backend.db.supabase_client import save_scan, get_client
 from backend.utils.email_alerts import send_threshold_alert, is_email_configured
 from backend.utils.cache import get_cached, set_cached, cache_stats
@@ -159,7 +160,18 @@ async def analyze_text(request: AnalyzeRequest, req: Request):
         return AnalyzeResponse(**cached)
     stat_result = statistical_analyze(text)
     ml_result = predict(text)
-    combined = combine_scores(stat_result["statistical_score"], ml_result["ml_score"], word_count=len(words))
+
+    # Pro users get AI-powered analysis for higher accuracy
+    ai_result = None
+    is_pro = user_ctx.get("plan") in ("pro", "enterprise")
+    if is_pro and is_ai_available():
+        ai_result = analyze_with_ai(text)
+
+    combined = combine_scores(
+        stat_result["statistical_score"], ml_result["ml_score"],
+        word_count=len(words),
+        ai_score=ai_result["ai_score"] if ai_result else None,
+    )
 
     sentences = split_sentences(text)
     sentence_results = predict_sentences(sentences)
@@ -177,6 +189,8 @@ async def analyze_text(request: AnalyzeRequest, req: Request):
         log.warning(f"DB write failed: {e}")
 
     metadata = _build_metadata(words, sentences, elapsed_ms, text, stat_result, ml_result)
+    if ai_result:
+        metadata["ai_analysis"] = ai_result
 
     response_data = {
         "result": combined,

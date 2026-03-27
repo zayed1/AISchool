@@ -1,24 +1,37 @@
-# Dynamic weights: ML model gets higher priority since it's trained specifically for this task
-# Statistical analysis serves as a supporting signal
+# Triple-engine combiner: statistical + ML model + AI API (optional)
 
-def combine_scores(statistical_score: float, ml_score: float, word_count: int = 200, ml_scores: list[float] | None = None) -> dict:
-    # ML model gets dominant weight — it's trained on actual AI vs human data
-    # Statistical analysis provides supplementary signals
-    if word_count <= 80:
-        ml_weight, stat_weight = 0.65, 0.35
-    elif word_count <= 150:
-        ml_weight, stat_weight = 0.75, 0.25
-    elif word_count <= 500:
-        ml_weight, stat_weight = 0.85, 0.15
+def combine_scores(statistical_score: float, ml_score: float, word_count: int = 200,
+                   ml_scores: list[float] | None = None, ai_score: float | None = None) -> dict:
+
+    if ai_score is not None:
+        # Pro mode: three engines — AI API gets highest trust
+        if word_count <= 80:
+            ai_w, ml_w, stat_w = 0.50, 0.30, 0.20
+        elif word_count <= 150:
+            ai_w, ml_w, stat_w = 0.55, 0.30, 0.15
+        else:
+            ai_w, ml_w, stat_w = 0.60, 0.25, 0.15
+
+        final_score = (ai_score * ai_w) + (ml_score * ml_w) + (statistical_score * stat_w)
     else:
-        ml_weight, stat_weight = 0.85, 0.15
+        # Free mode: two engines — ML model dominates
+        if word_count <= 80:
+            ml_w, stat_w = 0.65, 0.35
+        elif word_count <= 150:
+            ml_w, stat_w = 0.75, 0.25
+        else:
+            ml_w, stat_w = 0.85, 0.15
 
-    final_score = (ml_score * ml_weight) + (statistical_score * stat_weight)
+        final_score = (ml_score * ml_w) + (statistical_score * stat_w)
 
-    # Confidence interval based on agreement and chunk variance
+    # Confidence interval
     margin = 0.0
     disagreement = abs(ml_score - statistical_score)
     margin += disagreement * 8
+
+    if ai_score is not None:
+        ai_disagreement = abs(ai_score - ml_score)
+        margin += ai_disagreement * 4
 
     if word_count < 100:
         margin += 5
@@ -53,13 +66,18 @@ def combine_scores(statistical_score: float, ml_score: float, word_count: int = 
         level = "مرجّح بشدة أنه مكتوب بشرياً"
         color = "green"
 
-    return {
+    result = {
         "final_score": round(final_score, 2),
         "percentage": percentage,
         "level": level,
         "color": color,
         "confidence_low": confidence_low,
         "confidence_high": confidence_high,
-        "ml_weight": ml_weight,
-        "stat_weight": stat_weight,
+        "ml_weight": ml_w if ai_score is None else ml_w,
+        "stat_weight": stat_w,
     }
+
+    if ai_score is not None:
+        result["ai_powered"] = True
+
+    return result
