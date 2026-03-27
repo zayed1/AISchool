@@ -13,7 +13,6 @@ import { useKeyboardShortcuts, useOnlineStatus } from '../hooks/useUtilities'
 import { useToast } from '../contexts/ToastContext'
 import { useAuth } from '../contexts/AuthContext'
 import { countWords } from '../utils/debounce'
-import { getRateLimitInfo, recordAnalysis, canAnalyze } from '../utils/rateLimit'
 import { isBot, isTooFast } from '../utils/honeypot'
 import { cleanTextForAnalysis, smartPasteClean } from '../utils/textCleaner'
 import { requestNotificationPermission, sendAnalysisNotification } from '../utils/notifications'
@@ -23,7 +22,7 @@ import UsageBanner from '../components/UsageBanner'
 import ReferralProgram from '../components/ReferralProgram'
 
 function Home({ onResult, onPricing, onLogin }) {
-  const { recordLocalUsage } = useAuth()
+  const { recordLocalUsage, plan } = useAuth()
   // #7 — Restore draft from sessionStorage
   const [text, setText] = useState(() => {
     try {
@@ -41,7 +40,6 @@ function Home({ onResult, onPricing, onLogin }) {
   const [honeypot, setHoneypot] = useState('')
   const [cleaningInfo, setCleaningInfo] = useState(null)
   const [draftRecovery, setDraftRecovery] = useState(null) // #3 — IndexedDB recovery
-  const [countdown, setCountdown] = useState(0) // #2 — Rate limit countdown
   const isOnline = useOnlineStatus()
   const { addToast } = useToast()
   const pageLoadTime = useRef(Date.now())
@@ -78,21 +76,9 @@ function Home({ onResult, onPricing, onLogin }) {
     return () => { if (draftTimer.current) clearTimeout(draftTimer.current) }
   }, [text])
 
-  // #2 — Countdown timer when rate limited
-  useEffect(() => {
-    if (countdown <= 0) return
-    const timer = setInterval(() => {
-      setCountdown((prev) => {
-        if (prev <= 1) { clearInterval(timer); return 0 }
-        return prev - 1
-      })
-    }, 1000)
-    return () => clearInterval(timer)
-  }, [countdown > 0])
-
   const wordCount = useMemo(() => countWords(text), [text])
   const canSubmit = wordCount >= 50 && wordCount <= 5000
-  const rateInfo = getRateLimitInfo()
+  const planRemaining = Math.max(0, (plan.daily_limit || 10) - (plan.usage_today || 0))
   const wordsNeeded = Math.max(0, 50 - wordCount)
 
   // Clear error when user modifies text
@@ -122,9 +108,7 @@ function Home({ onResult, onPricing, onLogin }) {
       return 'لا يوجد اتصال بالإنترنت. تحقق من اتصالك وحاول مرة أخرى.'
     }
     if (status === 429) {
-      const info = getRateLimitInfo()
-      setCountdown(info.nextReset * 60)
-      return `تم تجاوز الحد الأقصى للتحليلات. متاح بعد ${info.nextReset} دقيقة.`
+      return detail?.message || 'وصلت للحد اليومي. اشترك بالخطة الاحترافية للمزيد.'
     }
     if (status === 422) {
       if (typeof detail === 'string') {
@@ -149,10 +133,8 @@ function Home({ onResult, onPricing, onLogin }) {
       addToast('يرجى الانتظار قليلاً قبل التحليل', 'warning')
       return
     }
-    if (!canAnalyze()) {
-      const info = getRateLimitInfo()
-      setCountdown(info.nextReset * 60) // #2 — Start countdown
-      addToast(`تم تجاوز الحد الأقصى (${info.total} تحليل/ساعة). حاول بعد ${info.nextReset} دقيقة.`, 'warning', 5000)
+    if (planRemaining <= 0) {
+      addToast(`وصلت للحد اليومي (${plan.daily_limit} تحليل/يوم). اشترك بالخطة الاحترافية للمزيد.`, 'warning', 5000)
       return
     }
 
@@ -184,7 +166,6 @@ function Home({ onResult, onPricing, onLogin }) {
         await setCachedResult(textToAnalyze, data)
         saveToHistory(data, textToAnalyze)
       }
-      recordAnalysis()
       setStep(null)
       sessionStorage.removeItem('draft_text')
       clearDraft() // #3 — Clear IndexedDB draft
@@ -241,13 +222,6 @@ function Home({ onResult, onPricing, onLogin }) {
       setUrlInput('')
       addToast('تم إدراج النص المستخرج', 'success')
     }
-  }
-
-  // #2 — Format countdown
-  const formatCountdown = (seconds) => {
-    const m = Math.floor(seconds / 60)
-    const s = seconds % 60
-    return `${m}:${s.toString().padStart(2, '0')}`
   }
 
   return (
@@ -385,27 +359,19 @@ function Home({ onResult, onPricing, onLogin }) {
           )}
 
           <div className="space-y-1.5">
-            <button data-submit-btn onClick={handleSubmit} disabled={!canSubmit || loading || !isOnline || rateInfo.remaining <= 0} className="w-full py-4 bg-primary-600 hover:bg-primary-700 active:bg-primary-800 disabled:bg-slate-300 dark:disabled:bg-slate-700 disabled:cursor-not-allowed text-white text-lg font-semibold rounded-xl transition-all transform active:scale-[0.99] focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2" aria-label="تحقق الآن">
+            <button data-submit-btn onClick={handleSubmit} disabled={!canSubmit || loading || !isOnline || planRemaining <= 0} className="w-full py-4 bg-primary-600 hover:bg-primary-700 active:bg-primary-800 disabled:bg-slate-300 dark:disabled:bg-slate-700 disabled:cursor-not-allowed text-white text-lg font-semibold rounded-xl transition-all transform active:scale-[0.99] focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2" aria-label="تحقق الآن">
               تحقق الآن
             </button>
-            {/* #3 — Visual rate limit bar */}
+            {/* Usage bar — unified with header */}
             <div className="flex items-center gap-3 text-xs text-slate-400 dark:text-slate-500">
               <div className="flex-1 max-w-32 h-1.5 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
                 <div
-                  className={`h-full rounded-full transition-all duration-500 ${rateInfo.remaining <= 3 ? 'bg-red-400' : rateInfo.remaining <= 8 ? 'bg-amber-400' : 'bg-green-400'}`}
-                  style={{ width: `${(rateInfo.remaining / rateInfo.total) * 100}%` }}
+                  className={`h-full rounded-full transition-all duration-500 ${planRemaining <= 2 ? 'bg-red-400' : planRemaining <= 5 ? 'bg-amber-400' : 'bg-green-400'}`}
+                  style={{ width: `${Math.min(100, ((plan.usage_today || 0) / (plan.daily_limit || 10)) * 100)}%` }}
                 />
               </div>
-              <span>{rateInfo.remaining}/{rateInfo.total}</span>
-              {countdown > 0 && (
-                <span className="text-red-500 font-mono font-bold flex items-center gap-1">
-                  <svg className="w-3 h-3 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                  {formatCountdown(countdown)}
-                </span>
-              )}
-              {!countdown && rateInfo.remaining <= 0 && <span className="text-red-500">حاول بعد {rateInfo.nextReset} د</span>}
+              <span>{planRemaining}/{plan.daily_limit || 10} متبقي</span>
+              {planRemaining <= 0 && <span className="text-red-500">انتهت التحليلات اليومية</span>}
             </div>
           </div>
 
@@ -413,7 +379,7 @@ function Home({ onResult, onPricing, onLogin }) {
           <HistoryPanel onSelect={(item) => onResult(item)} />
           <ReferralProgram />
 
-          <FloatingToolbar onPaste={handlePasteAnalyze} onClear={() => setText('')} onSubmit={handleSubmit} canSubmit={canSubmit && isOnline && rateInfo.remaining > 0} hasText={wordCount > 0} loading={false} />
+          <FloatingToolbar onPaste={handlePasteAnalyze} onClear={() => setText('')} onSubmit={handleSubmit} canSubmit={canSubmit && isOnline && planRemaining > 0} hasText={wordCount > 0} loading={false} />
         </>
       )}
     </div>
