@@ -1,71 +1,116 @@
 import os
+import re
 import json
+import random
 import numpy as np
 
 from backend.utils.logging import get_logger
 
 log = get_logger("ml_model")
 
-_session = None
-_tokenizer = None
-_label_map = None
-_ml_available = False
+# Primary model (Arabic-specific)
+_session1 = None
+_tokenizer1 = None
+_label_map1 = None
 
-_ONNX_DIR = os.path.join(os.path.dirname(__file__), "onnx_model")
-_ONNX_PATH = os.path.join(_ONNX_DIR, "model.onnx")
-_TOKENIZER_PATH = os.path.join(_ONNX_DIR, "tokenizer.json")
+# Secondary model (multilingual XLM-R)
+_session2 = None
+_tokenizer2 = None
+_label_map2 = None
+
+_ml_available = False
+_dual_model = False
+
+_ONNX_DIR1 = os.path.join(os.path.dirname(__file__), "onnx_model")
+_ONNX_PATH1 = os.path.join(_ONNX_DIR1, "model.onnx")
+_TOK_PATH1 = os.path.join(_ONNX_DIR1, "tokenizer.json")
+
+_ONNX_DIR2 = os.path.join(os.path.dirname(__file__), "onnx_model2")
+_ONNX_PATH2 = os.path.join(_ONNX_DIR2, "model.onnx")
+_TOK_PATH2 = os.path.join(_ONNX_DIR2, "tokenizer.json")
+
+
+# --- #3: Text normalization for better tokenizer accuracy ---
+_TASHKEEL_RE = re.compile(r'[\u0617-\u061A\u064B-\u0652]')
+_MULTI_SPACE_RE = re.compile(r'\s+')
+_TATWEEL_RE = re.compile(r'\u0640+')  # kashida/tatweel
+
+
+def _normalize_text(text: str) -> str:
+    """Clean text before feeding to model for better accuracy."""
+    t = text
+    t = _TASHKEEL_RE.sub('', t)  # remove diacritics
+    t = _TATWEEL_RE.sub('', t)   # remove tatweel
+    # Normalize common Arabic char variants
+    t = t.replace('أ', 'ا').replace('إ', 'ا').replace('آ', 'ا')
+    t = t.replace('ة', 'ه')
+    t = t.replace('ى', 'ي')
+    t = _MULTI_SPACE_RE.sub(' ', t).strip()
+    return t
+
+
+def _load_single(onnx_path, tok_path, onnx_dir, name):
+    import onnxruntime as ort
+    from tokenizers import Tokenizer
+
+    log.info(f"Loading {name} from {onnx_path}...")
+    session = ort.InferenceSession(onnx_path, providers=["CPUExecutionProvider"])
+
+    tokenizer = Tokenizer.from_file(tok_path)
+    tokenizer.enable_padding(pad_id=0, pad_token="[PAD]")
+    tokenizer.enable_truncation(max_length=512)
+
+    label_path = os.path.join(onnx_dir, "label_map.json")
+    if os.path.isfile(label_path):
+        with open(label_path) as f:
+            label_map = json.load(f)
+    else:
+        label_map = {"0": "HUMAN", "1": "AI"}
+
+    log.info(f"{name} loaded OK (labels: {label_map})")
+    return session, tokenizer, label_map
 
 
 def load_model():
-    """Load ONNX model + lightweight tokenizer. Returns True if loaded, False otherwise."""
-    global _session, _tokenizer, _label_map, _ml_available
+    global _session1, _tokenizer1, _label_map1
+    global _session2, _tokenizer2, _label_map2
+    global _ml_available, _dual_model
 
-    if _session is not None:
+    if _session1 is not None:
         return True
 
-    if not os.path.isfile(_ONNX_PATH):
-        log.warning(f"ONNX model not found at {_ONNX_PATH} — statistical-only mode")
+    if not os.path.isfile(_ONNX_PATH1):
+        log.warning(f"Primary model not found — statistical-only mode")
         _ml_available = False
         return False
 
     try:
-        import onnxruntime as ort
-        log.info(f"Loading ONNX model from {_ONNX_PATH}...")
-        _session = ort.InferenceSession(
-            _ONNX_PATH,
-            providers=["CPUExecutionProvider"],
+        _session1, _tokenizer1, _label_map1 = _load_single(
+            _ONNX_PATH1, _TOK_PATH1, _ONNX_DIR1, "Primary (Arabic)"
         )
-        log.info("ONNX session created OK")
-
-        from tokenizers import Tokenizer
-        _tokenizer = Tokenizer.from_file(_TOKENIZER_PATH)
-        # Dynamic padding — pad to longest in batch, not fixed 512
-        # This preserves signal for short texts instead of drowning in padding
-        _tokenizer.enable_padding(pad_id=0, pad_token="[PAD]")
-        _tokenizer.enable_truncation(max_length=512)
-        log.info("Tokenizer loaded OK (lightweight, dynamic padding)")
-
-        label_path = os.path.join(_ONNX_DIR, "label_map.json")
-        if os.path.isfile(label_path):
-            with open(label_path) as f:
-                _label_map = json.load(f)
-        else:
-            _label_map = {"0": "HUMAN", "1": "AI"}
-
         _ml_available = True
-        log.info("ML model fully loaded")
+
+        if os.path.isfile(_ONNX_PATH2):
+            try:
+                _session2, _tokenizer2, _label_map2 = _load_single(
+                    _ONNX_PATH2, _TOK_PATH2, _ONNX_DIR2, "Secondary (XLM-R)"
+                )
+                _dual_model = True
+                log.info("Dual-model ensemble enabled")
+            except Exception as e:
+                log.warning(f"Secondary model failed: {e}")
+                _dual_model = False
+
         return True
 
     except Exception as e:
-        log.warning(f"Failed to load model: {e} — statistical-only mode")
-        _session = None
-        _tokenizer = None
+        log.warning(f"Failed to load models: {e}")
         _ml_available = False
         return False
 
 
 def is_model_loaded() -> bool:
-    return _ml_available and _session is not None
+    return _ml_available and _session1 is not None
 
 
 def _softmax(logits):
@@ -73,136 +118,165 @@ def _softmax(logits):
     return exp / exp.sum(axis=-1, keepdims=True)
 
 
-def _tokenize(text: str) -> dict:
-    """Tokenize single text. Returns numpy arrays."""
-    encoding = _tokenizer.encode(text)
-    return {
-        "input_ids": np.array([encoding.ids], dtype=np.int64),
-        "attention_mask": np.array([encoding.attention_mask], dtype=np.int64),
-    }
+def _find_ai_index(label_map):
+    for idx, label in label_map.items():
+        if label.upper() in ("AI", "MACHINE", "GENERATED", "FAKE", "AI-GENERATED"):
+            return int(idx)
+    return 1
 
 
-# B2 — Batch tokenize and infer multiple texts at once
-def _tokenize_batch(texts: list[str]) -> dict:
-    """Tokenize multiple texts as a batch. Returns padded numpy arrays."""
-    encodings = _tokenizer.encode_batch(texts)
-    return {
+def _classify_with_model(texts, session, tokenizer, label_map):
+    if not texts:
+        return []
+    encodings = tokenizer.encode_batch(texts)
+    inputs = {
         "input_ids": np.array([e.ids for e in encodings], dtype=np.int64),
         "attention_mask": np.array([e.attention_mask for e in encodings], dtype=np.int64),
     }
-
-
-def _classify_batch(texts: list[str]) -> list[dict]:
-    """Classify multiple texts in a single ONNX inference call."""
-    if not _ml_available or _session is None or not texts:
-        return [{"label": "HUMAN", "score": 0.5} for _ in texts]
-
-    inputs = _tokenize_batch(texts)
-    logits = _session.run(None, inputs)[0]
+    logits = session.run(None, inputs)[0]
     probs = _softmax(logits)
-
-    results = []
-    for i in range(len(texts)):
-        predicted_idx = int(np.argmax(probs[i]))
-        label = _label_map.get(str(predicted_idx), "HUMAN")
-        confidence = float(probs[i][predicted_idx])
-        results.append({"label": label, "score": confidence})
-    return results
+    ai_idx = _find_ai_index(label_map)
+    return [float(probs[i][ai_idx]) for i in range(len(texts))]
 
 
-def _classify(text: str) -> dict:
-    """Classify a single text. Returns {label, score}."""
-    if not _ml_available or _session is None:
-        return {"label": "HUMAN", "score": 0.5}
-
-    inputs = _tokenize(text)
-    logits = _session.run(None, inputs)[0]
-    probs = _softmax(logits)[0]
-
-    predicted_idx = int(np.argmax(probs))
-    label = _label_map.get(str(predicted_idx), "HUMAN")
-    confidence = float(probs[predicted_idx])
-
-    return {"label": label, "score": confidence}
+def _ensemble_classify(texts):
+    scores1 = _classify_with_model(texts, _session1, _tokenizer1, _label_map1)
+    if _dual_model:
+        scores2 = _classify_with_model(texts, _session2, _tokenizer2, _label_map2)
+        return [s1 * 0.55 + s2 * 0.45 for s1, s2 in zip(scores1, scores2)]
+    return scores1
 
 
-def _get_token_count(text: str) -> int:
-    encoding = _tokenizer.encode(text)
-    return sum(1 for t in encoding.attention_mask if t == 1)
+# --- #2: Multi-view analysis ---
+def _generate_views(text: str, sentences: list[str] | None = None) -> list[str]:
+    """Generate multiple text views for ensemble analysis."""
+    views = [text]  # full text always included
+
+    if not sentences:
+        sentences = [s.strip() for s in re.split(r'[.؟!؛:\n]+', text) if s.strip() and len(s.split()) >= 3]
+
+    if len(sentences) >= 4:
+        # View: without first and last sentence (removes intro/conclusion)
+        views.append(" ".join(sentences[1:-1]))
+
+        # View: first half only
+        mid = len(sentences) // 2
+        views.append(" ".join(sentences[:mid]))
+
+        # View: second half only
+        views.append(" ".join(sentences[mid:]))
+
+    if len(sentences) >= 6:
+        # View: shuffled sentences (breaks flow, tests individual sentence quality)
+        shuffled = sentences.copy()
+        random.seed(42)  # deterministic for caching
+        random.shuffle(shuffled)
+        views.append(" ".join(shuffled))
+
+    return views
 
 
-def _chunk_text(text: str, max_tokens: int = 450) -> list[str]:
-    if not _ml_available or _tokenizer is None:
+def _get_token_count(text):
+    encoding = _tokenizer1.encode(text)
+    return sum(1 for m in encoding.attention_mask if m == 1)
+
+
+def _sliding_window_chunks(text, window_tokens=400, stride_tokens=200):
+    if not _ml_available or _tokenizer1 is None:
         return [text]
 
-    token_count = _get_token_count(text)
-    if token_count <= max_tokens:
+    tok_count = _get_token_count(text)
+    if tok_count <= window_tokens:
         return [text]
 
     words = text.split()
     chunks = []
-    current_words = []
+    word_idx = 0
 
-    for word in words:
-        current_words.append(word)
-        if len(current_words) % 20 == 0:
-            chunk_text = " ".join(current_words)
-            if _get_token_count(chunk_text) >= max_tokens:
-                chunks.append(" ".join(current_words[:-1]))
-                current_words = [word]
+    while word_idx < len(words):
+        chunk_words = []
+        for j in range(word_idx, len(words)):
+            chunk_words.append(words[j])
+            if len(chunk_words) % 15 == 0:
+                if _get_token_count(" ".join(chunk_words)) >= window_tokens:
+                    break
 
-    if current_words:
-        chunks.append(" ".join(current_words))
+        chunks.append(" ".join(chunk_words))
+        stride_words = max(1, len(chunk_words) * stride_tokens // window_tokens)
+        word_idx += stride_words
 
     return chunks if chunks else [text]
 
 
-def predict(text: str) -> dict:
-    """Predict AI probability. Returns neutral 0.5 if ML model unavailable."""
+def predict(text):
+    """Predict AI probability using multi-view + sliding window + dual-model ensemble."""
     if not _ml_available:
         return {"label": "HUMAN", "confidence": 0.5, "ml_score": 0.5}
 
-    chunks = _chunk_text(text)
+    # #3: Normalize text
+    clean_text = _normalize_text(text)
 
-    if len(chunks) == 1:
-        result = _classify(chunks[0])
-        label = result["label"]
-        confidence = result["score"]
-        ml_score = confidence if label.upper() == "AI" else 1 - confidence
-        return {"label": label, "confidence": round(confidence, 3), "ml_score": round(ml_score, 3)}
+    # #2: Generate multiple views
+    views = _generate_views(clean_text)
 
-    # B2 — Batch inference for multi-chunk texts
-    results = _classify_batch(chunks)
+    # For each view, get sliding window chunks and classify
+    all_scores = []
+    view_weights = []
 
-    total_weight = 0.0
-    weighted_score = 0.0
+    for i, view in enumerate(views):
+        chunks = _sliding_window_chunks(view)
+        chunk_scores = _ensemble_classify(chunks)
 
-    for result in results:
-        label = result["label"]
-        confidence = result["score"]
-        chunk_ml_score = confidence if label.upper() == "AI" else 1 - confidence
-        weight = confidence
-        weighted_score += chunk_ml_score * weight
-        total_weight += weight
+        # Average chunks within this view
+        if len(chunk_scores) == 1:
+            view_score = chunk_scores[0]
+        else:
+            total_w = 0.0
+            weighted_s = 0.0
+            for j, score in enumerate(chunk_scores):
+                w = 0.5 + 0.5 * min(len(chunks[j].split()) / 100, 1.0)
+                weighted_s += score * w
+                total_w += w
+            view_score = weighted_s / total_w if total_w > 0 else 0.5
 
-    avg_ml_score = weighted_score / total_weight if total_weight > 0 else 0.5
-    final_label = "AI" if avg_ml_score >= 0.5 else "HUMAN"
-    final_confidence = avg_ml_score if final_label == "AI" else 1 - avg_ml_score
+        all_scores.append(view_score)
+        # First view (full text) gets highest weight
+        view_weights.append(1.0 if i == 0 else 0.6)
 
-    return {"label": final_label, "confidence": round(final_confidence, 3), "ml_score": round(avg_ml_score, 3)}
+    # Weighted average across views
+    total_weight = sum(view_weights)
+    ml_score = sum(s * w for s, w in zip(all_scores, view_weights)) / total_weight
+
+    # Majority vote boost across views
+    ai_views = sum(1 for s in all_scores if s >= 0.5)
+    agreement = max(ai_views, len(all_scores) - ai_views) / len(all_scores)
+    if agreement >= 0.8 and len(all_scores) >= 3:
+        if ai_views > len(all_scores) / 2:
+            ml_score = ml_score * 0.7 + 0.3
+        else:
+            ml_score = ml_score * 0.7
+
+    # #1: Return raw ml_score + confidence for dynamic weighting in combiner
+    ml_score = max(0.0, min(1.0, ml_score))
+    final_label = "AI" if ml_score >= 0.5 else "HUMAN"
+    final_confidence = ml_score if final_label == "AI" else 1 - ml_score
+
+    return {
+        "label": final_label,
+        "confidence": round(final_confidence, 3),
+        "ml_score": round(ml_score, 3),
+    }
 
 
-# B2 — Batch sentence prediction
+# --- Sentence prediction with ensemble ---
 _BATCH_SIZE = 16
 
 
-def predict_sentences(sentences: list[str]) -> list[dict]:
-    """Predict AI probability for sentences using batch inference."""
+def predict_sentences(sentences):
     if not _ml_available:
         return [{"text": s, "score": 0.5, "flag": "neutral"} for s in sentences]
 
     results = []
-    # Separate short sentences (skip ML) from normal ones
     batch_indices = []
     batch_texts = []
 
@@ -210,34 +284,23 @@ def predict_sentences(sentences: list[str]) -> list[dict]:
         if len(sentence.split()) < 3:
             results.append({"text": sentence, "score": 0.5, "flag": "neutral"})
         else:
-            results.append(None)  # placeholder
+            results.append(None)
             batch_indices.append(i)
-            batch_texts.append(sentence)
+            batch_texts.append(_normalize_text(sentence))
 
-    # B2 — Process in batches
     for batch_start in range(0, len(batch_texts), _BATCH_SIZE):
         batch = batch_texts[batch_start:batch_start + _BATCH_SIZE]
         indices = batch_indices[batch_start:batch_start + _BATCH_SIZE]
 
         try:
-            classifications = _classify_batch(batch)
+            ai_scores = _ensemble_classify(batch)
         except Exception:
-            classifications = [{"label": "HUMAN", "score": 0.5}] * len(batch)
+            ai_scores = [0.5] * len(batch)
 
-        for j, cls_result in enumerate(classifications):
-            label = cls_result["label"]
-            confidence = cls_result["score"]
-            score = confidence if label.upper() == "AI" else 1 - confidence
-
-            if score >= 0.7:
-                flag = "high"
-            elif score >= 0.4:
-                flag = "medium"
-            else:
-                flag = "low"
-
+        for j, score in enumerate(ai_scores):
+            flag = "high" if score >= 0.7 else "medium" if score >= 0.4 else "low"
             results[indices[j]] = {
-                "text": batch[j],
+                "text": sentences[indices[j]],  # return original text, not normalized
                 "score": round(score, 2),
                 "flag": flag,
             }
