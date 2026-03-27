@@ -1,10 +1,6 @@
 """
 سكربت جمع بيانات التدريب — يعمل في Google Colab
 يجمع نصوص عربية بشرية + يولّد نصوص AI تلقائياً
-
-التشغيل:
-  pip install datasets google-generativeai tqdm
-  python collect_data.py
 """
 import json
 import os
@@ -15,11 +11,8 @@ from pathlib import Path
 OUTPUT_DIR = Path("training_data")
 OUTPUT_DIR.mkdir(exist_ok=True)
 
-# ========================
-# مصدر 1: بيانات جاهزة من HuggingFace
-# ========================
+
 def collect_huggingface_datasets():
-    """جمع datasets عربية جاهزة — مجانية بالكامل."""
     from datasets import load_dataset
 
     all_data = []
@@ -27,58 +20,66 @@ def collect_huggingface_datasets():
     # 1. KFUPM Arabic AI Detection Dataset
     print("📥 جمع KFUPM dataset...")
     try:
-        ds = load_dataset("KFUPM-JRCAI/arabic-generated-abstracts", split="train")
-        for row in ds:
-            text = row.get("text", row.get("abstract", ""))
-            label = row.get("label", "")
-            if text and len(text.split()) >= 30:
-                is_ai = label in ("machine", "generated", "ai", "1", 1)
-                all_data.append({"text": text[:2000], "label": 1 if is_ai else 0, "source": "kfupm"})
-        print(f"  ✓ {len([d for d in all_data if d['source'] == 'kfupm'])} عينة")
+        for split_name in ['from_title', 'from_title_and_content', 'by_polishing']:
+            try:
+                ds = load_dataset("KFUPM-JRCAI/arabic-generated-abstracts", split=split_name)
+                for row in ds:
+                    text = row.get("generated_text", row.get("text", row.get("abstract", "")))
+                    if text and len(text.split()) >= 30:
+                        all_data.append({"text": text[:2000], "label": 1, "source": "kfupm_ai"})
+                    # Also get human text if available
+                    human_text = row.get("original_text", row.get("human_text", ""))
+                    if human_text and len(human_text.split()) >= 30:
+                        all_data.append({"text": human_text[:2000], "label": 0, "source": "kfupm_human"})
+            except Exception:
+                continue
+        print(f"  ✓ {len([d for d in all_data if 'kfupm' in d['source']])} عينة من KFUPM")
     except Exception as e:
         print(f"  ✗ KFUPM failed: {e}")
 
-    # 2. Arabic Wikipedia (بشري)
-    print("📥 جمع Wikipedia العربية...")
+    # 2. Arabic text datasets (بشري)
+    print("📥 جمع نصوص عربية بشرية...")
+    human_datasets = [
+        ("arbml/Arabic_Poems", "poem_text", None),
+        ("Zaid/arabic_text_classification", "text", None),
+    ]
+
+    for ds_name, text_col, split in human_datasets:
+        try:
+            ds = load_dataset(ds_name, split=split or "train", streaming=True)
+            count = 0
+            for row in ds:
+                text = row.get(text_col, row.get("text", ""))
+                if text and len(text.split()) >= 30:
+                    all_data.append({"text": text[:2000], "label": 0, "source": ds_name.split("/")[-1]})
+                    count += 1
+                    if count >= 3000:
+                        break
+            print(f"  ✓ {count} عينة من {ds_name}")
+        except Exception as e:
+            print(f"  ✗ {ds_name}: {e}")
+
+    # 3. Arabic CC100 (نصوص ويب عربية بشرية — بديل ويكيبيديا)
+    print("📥 جمع نصوص ويب عربية...")
     try:
-        ds = load_dataset("wikipedia", "20220301.ar", split="train", streaming=True)
-        wiki_count = 0
+        ds = load_dataset("cc100", lang="ar", split="train", streaming=True)
+        count = 0
         for row in ds:
             text = row.get("text", "")
-            # أخذ فقرة واحدة بحجم معقول
-            paragraphs = [p.strip() for p in text.split("\n") if len(p.split()) >= 50]
-            for p in paragraphs[:1]:
-                all_data.append({"text": p[:2000], "label": 0, "source": "wikipedia"})
-                wiki_count += 1
-                if wiki_count >= 8000:
+            if text and len(text.split()) >= 50 and len(text.split()) <= 500:
+                all_data.append({"text": text[:2000], "label": 0, "source": "cc100"})
+                count += 1
+                if count >= 6000:
                     break
-            if wiki_count >= 8000:
-                break
-        print(f"  ✓ {wiki_count} عينة بشرية من ويكيبيديا")
+        print(f"  ✓ {count} عينة من CC100")
     except Exception as e:
-        print(f"  ✗ Wikipedia failed: {e}")
-
-    # 3. Arabic News (بشري)
-    print("📥 جمع أخبار عربية...")
-    try:
-        ds = load_dataset("arbml/Arabic_News", split="train", streaming=True)
-        news_count = 0
-        for row in ds:
-            text = row.get("text", row.get("content", ""))
-            if text and len(text.split()) >= 50:
-                all_data.append({"text": text[:2000], "label": 0, "source": "news"})
-                news_count += 1
-                if news_count >= 4000:
-                    break
-        print(f"  ✓ {news_count} عينة بشرية من الأخبار")
-    except Exception as e:
-        print(f"  ✗ Arabic News failed: {e}")
+        print(f"  ✗ CC100: {e}")
 
     return all_data
 
 
 # ========================
-# مصدر 2: توليد نصوص AI مجاناً بـ Gemini
+# توليد نصوص AI بـ Gemini
 # ========================
 TOPICS = [
     "التعليم الإلكتروني", "الذكاء الاصطناعي", "التغير المناخي", "الصحة النفسية",
@@ -103,7 +104,6 @@ STYLES = [
 
 
 def generate_ai_texts_gemini(count=5000):
-    """توليد نصوص AI باستخدام Gemini المجاني."""
     try:
         import google.generativeai as genai
     except ImportError:
@@ -112,7 +112,7 @@ def generate_ai_texts_gemini(count=5000):
 
     api_key = os.environ.get("GEMINI_API_KEY", "")
     if not api_key:
-        print("⚠️  ضع GEMINI_API_KEY (مجاني من https://aistudio.google.com/apikey)")
+        print("⚠️  لم يتم تعيين GEMINI_API_KEY")
         return []
 
     genai.configure(api_key=api_key)
@@ -124,35 +124,36 @@ def generate_ai_texts_gemini(count=5000):
     for i in range(count):
         topic = random.choice(TOPICS)
         style = random.choice(STYLES)
-        prompt = f"{style} {topic}. اكتب بالعربية الفصحى في 100-300 كلمة."
+        prompt = f"{style} {topic}. اكتب بالعربية الفصحى في 100-300 كلمة. لا تستخدم عناوين أو نقاط. فقط فقرات نصية."
 
         try:
             response = model.generate_content(prompt)
             text = response.text.strip()
+            # تنظيف
+            text = text.replace("##", "").replace("**", "").replace("*", "").strip()
             if text and len(text.split()) >= 50:
                 generated.append({"text": text[:2000], "label": 1, "source": "gemini"})
                 if (i + 1) % 100 == 0:
                     print(f"  {i + 1}/{count} ({len(generated)} نجحت)")
-            time.sleep(0.5)  # rate limit
+            time.sleep(0.3)
         except Exception as e:
-            if "quota" in str(e).lower() or "rate" in str(e).lower():
-                print(f"  ⏸ Rate limit — waiting 60s...")
+            err = str(e).lower()
+            if "quota" in err or "rate" in err or "resource" in err:
+                print(f"  ⏸ Rate limit — waiting 60s... ({len(generated)} حتى الآن)")
                 time.sleep(60)
             continue
 
-    print(f"  ✓ {len(generated)} نص AI مولّد")
+    print(f"  ✓ {len(generated)} نص AI مولّد بـ Gemini")
     return generated
 
 
-# ========================
-# مصدر 3: توليد بديل بدون API (نصوص قالبية)
-# ========================
 def generate_template_ai_texts(count=3000):
-    """توليد نصوص بأسلوب AI نمطي — بدون API."""
     templates = [
         "يُعدّ {topic} من أبرز المجالات التي شهدت تطوراً ملحوظاً في الآونة الأخيرة. بالإضافة إلى ذلك، فإن {topic} يلعب دوراً محورياً في تشكيل مستقبل المجتمعات. من الجدير بالذكر أن الدراسات الحديثة تُشير إلى أهمية {topic} في تحقيق التنمية المستدامة. علاوة على ذلك، يسهم {topic} في تحسين جودة الحياة بشكل عام. في هذا السياق، تبرز الحاجة إلى مزيد من البحث والتطوير في مجال {topic}. من ناحية أخرى، يثير {topic} تساؤلات مهمة حول التحديات المستقبلية.",
         "في ضوء التطورات الراهنة، يكتسب {topic} أهمية متزايدة في عالمنا المعاصر. تتمثل أهمية {topic} في قدرته على إحداث تحولات جوهرية في مختلف المجالات. وفقاً للمتخصصين، فإن {topic} يُشكّل ركيزة أساسية للتقدم والازدهار. بناءً على ذلك، تسعى المؤسسات إلى تبني استراتيجيات فعالة في مجال {topic}. في الختام، يمكن القول إن {topic} يمثل فرصة حقيقية لتحقيق التطور المنشود.",
         "يحظى {topic} باهتمام واسع من قبل الباحثين والمتخصصين على حد سواء. تجدر الإشارة إلى أن {topic} قد أثبت فعاليته في العديد من التطبيقات العملية. استناداً إلى الأدلة المتاحة، يتضح أن {topic} يُسهم بشكل فعّال في تطوير المجتمعات. على صعيد آخر، يواجه {topic} عدداً من التحديات التي تستلزم معالجة شاملة. في نهاية المطاف، يبقى {topic} عنصراً حيوياً في مسيرة التقدم البشري.",
+        "تُشير الدراسات الحديثة إلى أن {topic} يمثل أحد أهم التوجهات المعاصرة. من المنظور الأكاديمي، يُعتبر {topic} مجالاً خصباً للبحث والاستكشاف. بالإضافة إلى ذلك، أظهرت التجارب العملية نتائج واعدة في مجال {topic}. وفي هذا الإطار، تعمل المؤسسات على تطوير برامج متخصصة في {topic}. خلاصة القول، يُعد {topic} من الركائز الأساسية لبناء مستقبل أفضل.",
+        "لا يخفى على أحد الأهمية المتزايدة التي يكتسبها {topic} في عصرنا الحالي. فمن ناحية، يسهم {topic} في تعزيز الكفاءة والإنتاجية. ومن ناحية أخرى، يفتح {topic} آفاقاً جديدة للابتكار والإبداع. في السياق ذاته، تؤكد الأبحاث أن {topic} يحمل في طياته إمكانات هائلة لم تُستغل بعد. وبناءً على ما تقدم، نستنتج أن الاستثمار في {topic} يُعد خياراً استراتيجياً حكيماً.",
     ]
 
     generated = []
@@ -166,9 +167,6 @@ def generate_template_ai_texts(count=3000):
     return generated
 
 
-# ========================
-# التجميع النهائي
-# ========================
 def main():
     print("=" * 50)
     print("  جمع بيانات تدريب كاشف النصوص العربية")
@@ -181,12 +179,15 @@ def main():
 
     # 2. نصوص AI مولّدة
     if os.environ.get("GEMINI_API_KEY"):
-        all_data.extend(generate_ai_texts_gemini(5000))
+        ai_texts = generate_ai_texts_gemini(5000)
+        all_data.extend(ai_texts)
+        # إضافة نصوص قالبية أيضاً لتنويع أكثر
+        all_data.extend(generate_template_ai_texts(2000))
     else:
-        print("\n⚠️  لم يتم تعيين GEMINI_API_KEY — استخدام نصوص قالبية بديلة")
+        print("\n⚠️  لم يتم تعيين GEMINI_API_KEY — استخدام نصوص قالبية")
         all_data.extend(generate_template_ai_texts(5000))
 
-    # خلط البيانات
+    # خلط
     random.shuffle(all_data)
 
     # إحصائيات
@@ -196,7 +197,11 @@ def main():
     print(f"\n{'=' * 50}")
     print(f"  إجمالي العينات: {len(all_data)}")
     print(f"  AI: {ai_count} | بشري: {human_count}")
-    print(f"  المصادر: {set(d['source'] for d in all_data)}")
+    sources = {}
+    for d in all_data:
+        sources[d["source"]] = sources.get(d["source"], 0) + 1
+    for src, cnt in sorted(sources.items(), key=lambda x: -x[1]):
+        print(f"    {src}: {cnt}")
     print(f"{'=' * 50}")
 
     # حفظ
