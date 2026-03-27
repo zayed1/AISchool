@@ -1,5 +1,7 @@
 import os
+import re
 import json
+import random
 import numpy as np
 
 from backend.utils.logging import get_logger
@@ -26,6 +28,25 @@ _TOK_PATH1 = os.path.join(_ONNX_DIR1, "tokenizer.json")
 _ONNX_DIR2 = os.path.join(os.path.dirname(__file__), "onnx_model2")
 _ONNX_PATH2 = os.path.join(_ONNX_DIR2, "model.onnx")
 _TOK_PATH2 = os.path.join(_ONNX_DIR2, "tokenizer.json")
+
+
+# --- #3: Text normalization for better tokenizer accuracy ---
+_TASHKEEL_RE = re.compile(r'[\u0617-\u061A\u064B-\u0652]')
+_MULTI_SPACE_RE = re.compile(r'\s+')
+_TATWEEL_RE = re.compile(r'\u0640+')  # kashida/tatweel
+
+
+def _normalize_text(text: str) -> str:
+    """Clean text before feeding to model for better accuracy."""
+    t = text
+    t = _TASHKEEL_RE.sub('', t)  # remove diacritics
+    t = _TATWEEL_RE.sub('', t)   # remove tatweel
+    # Normalize common Arabic char variants
+    t = t.replace('أ', 'ا').replace('إ', 'ا').replace('آ', 'ا')
+    t = t.replace('ة', 'ه')
+    t = t.replace('ى', 'ي')
+    t = _MULTI_SPACE_RE.sub(' ', t).strip()
+    return t
 
 
 def _load_single(onnx_path, tok_path, onnx_dir, name):
@@ -59,7 +80,7 @@ def load_model():
         return True
 
     if not os.path.isfile(_ONNX_PATH1):
-        log.warning(f"Primary model not found at {_ONNX_PATH1} — statistical-only mode")
+        log.warning(f"Primary model not found — statistical-only mode")
         _ml_available = False
         return False
 
@@ -69,7 +90,6 @@ def load_model():
         )
         _ml_available = True
 
-        # Try loading secondary model (optional)
         if os.path.isfile(_ONNX_PATH2):
             try:
                 _session2, _tokenizer2, _label_map2 = _load_single(
@@ -78,15 +98,13 @@ def load_model():
                 _dual_model = True
                 log.info("Dual-model ensemble enabled")
             except Exception as e:
-                log.warning(f"Secondary model failed: {e} — using primary only")
+                log.warning(f"Secondary model failed: {e}")
                 _dual_model = False
-        else:
-            log.info("Secondary model not found — using primary only")
 
         return True
 
     except Exception as e:
-        log.warning(f"Failed to load models: {e} — statistical-only mode")
+        log.warning(f"Failed to load models: {e}")
         _ml_available = False
         return False
 
@@ -101,18 +119,15 @@ def _softmax(logits):
 
 
 def _find_ai_index(label_map):
-    """Find which index corresponds to AI label."""
     for idx, label in label_map.items():
         if label.upper() in ("AI", "MACHINE", "GENERATED", "FAKE", "AI-GENERATED"):
             return int(idx)
-    return 1  # default assumption
+    return 1
 
 
 def _classify_with_model(texts, session, tokenizer, label_map):
-    """Classify texts with a specific model. Returns list of AI scores (0-1)."""
     if not texts:
         return []
-
     encodings = tokenizer.encode_batch(texts)
     inputs = {
         "input_ids": np.array([e.ids for e in encodings], dtype=np.int64),
@@ -120,40 +135,47 @@ def _classify_with_model(texts, session, tokenizer, label_map):
     }
     logits = session.run(None, inputs)[0]
     probs = _softmax(logits)
-
     ai_idx = _find_ai_index(label_map)
-    scores = []
-    for i in range(len(texts)):
-        ai_prob = float(probs[i][ai_idx])
-        scores.append(ai_prob)
-    return scores
+    return [float(probs[i][ai_idx]) for i in range(len(texts))]
 
 
 def _ensemble_classify(texts):
-    """Classify using both models and ensemble the results."""
     scores1 = _classify_with_model(texts, _session1, _tokenizer1, _label_map1)
-
     if _dual_model:
         scores2 = _classify_with_model(texts, _session2, _tokenizer2, _label_map2)
-        # Weighted average: primary 55%, secondary 45%
-        # Primary is Arabic-specific, secondary provides generalization
-        ensembled = [s1 * 0.55 + s2 * 0.45 for s1, s2 in zip(scores1, scores2)]
-        return ensembled
-    else:
-        return scores1
+        return [s1 * 0.55 + s2 * 0.45 for s1, s2 in zip(scores1, scores2)]
+    return scores1
 
 
-def _classify(text):
-    if not _ml_available:
-        return {"label": "HUMAN", "score": 0.5}
-    scores = _ensemble_classify([text])
-    ai_score = scores[0]
-    label = "AI" if ai_score >= 0.5 else "HUMAN"
-    confidence = ai_score if label == "AI" else 1 - ai_score
-    return {"label": label, "score": confidence}
+# --- #2: Multi-view analysis ---
+def _generate_views(text: str, sentences: list[str] | None = None) -> list[str]:
+    """Generate multiple text views for ensemble analysis."""
+    views = [text]  # full text always included
+
+    if not sentences:
+        sentences = [s.strip() for s in re.split(r'[.؟!؛:\n]+', text) if s.strip() and len(s.split()) >= 3]
+
+    if len(sentences) >= 4:
+        # View: without first and last sentence (removes intro/conclusion)
+        views.append(" ".join(sentences[1:-1]))
+
+        # View: first half only
+        mid = len(sentences) // 2
+        views.append(" ".join(sentences[:mid]))
+
+        # View: second half only
+        views.append(" ".join(sentences[mid:]))
+
+    if len(sentences) >= 6:
+        # View: shuffled sentences (breaks flow, tests individual sentence quality)
+        shuffled = sentences.copy()
+        random.seed(42)  # deterministic for caching
+        random.shuffle(shuffled)
+        views.append(" ".join(shuffled))
+
+    return views
 
 
-# --- Sliding window ---
 def _get_token_count(text):
     encoding = _tokenizer1.encode(text)
     return sum(1 for m in encoding.attention_mask if m == 1)
@@ -176,8 +198,7 @@ def _sliding_window_chunks(text, window_tokens=400, stride_tokens=200):
         for j in range(word_idx, len(words)):
             chunk_words.append(words[j])
             if len(chunk_words) % 15 == 0:
-                chunk_text = " ".join(chunk_words)
-                if _get_token_count(chunk_text) >= window_tokens:
+                if _get_token_count(" ".join(chunk_words)) >= window_tokens:
                     break
 
         chunks.append(" ".join(chunk_words))
@@ -188,37 +209,55 @@ def _sliding_window_chunks(text, window_tokens=400, stride_tokens=200):
 
 
 def predict(text):
+    """Predict AI probability using multi-view + sliding window + dual-model ensemble."""
     if not _ml_available:
         return {"label": "HUMAN", "confidence": 0.5, "ml_score": 0.5}
 
-    chunks = _sliding_window_chunks(text)
+    # #3: Normalize text
+    clean_text = _normalize_text(text)
 
-    # Ensemble classify all chunks at once
-    ai_scores = _ensemble_classify(chunks)
+    # #2: Generate multiple views
+    views = _generate_views(clean_text)
 
-    if len(ai_scores) == 1:
-        ml_score = ai_scores[0]
-    else:
-        # Weighted ensemble by chunk length
-        total_weight = 0.0
-        weighted_score = 0.0
-        for i, score in enumerate(ai_scores):
-            chunk_len = len(chunks[i].split())
-            weight = 0.5 + 0.5 * min(chunk_len / 100, 1.0)
-            weighted_score += score * weight
-            total_weight += weight
+    # For each view, get sliding window chunks and classify
+    all_scores = []
+    view_weights = []
 
-        ml_score = weighted_score / total_weight if total_weight > 0 else 0.5
+    for i, view in enumerate(views):
+        chunks = _sliding_window_chunks(view)
+        chunk_scores = _ensemble_classify(chunks)
 
-        # D: Majority vote boost
-        ai_chunks = sum(1 for s in ai_scores if s >= 0.5)
-        agreement = max(ai_chunks, len(ai_scores) - ai_chunks) / len(ai_scores)
-        if agreement >= 0.8:
-            if ai_chunks > len(ai_scores) / 2:
-                ml_score = ml_score * 0.7 + 0.3
-            else:
-                ml_score = ml_score * 0.7
+        # Average chunks within this view
+        if len(chunk_scores) == 1:
+            view_score = chunk_scores[0]
+        else:
+            total_w = 0.0
+            weighted_s = 0.0
+            for j, score in enumerate(chunk_scores):
+                w = 0.5 + 0.5 * min(len(chunks[j].split()) / 100, 1.0)
+                weighted_s += score * w
+                total_w += w
+            view_score = weighted_s / total_w if total_w > 0 else 0.5
 
+        all_scores.append(view_score)
+        # First view (full text) gets highest weight
+        view_weights.append(1.0 if i == 0 else 0.6)
+
+    # Weighted average across views
+    total_weight = sum(view_weights)
+    ml_score = sum(s * w for s, w in zip(all_scores, view_weights)) / total_weight
+
+    # Majority vote boost across views
+    ai_views = sum(1 for s in all_scores if s >= 0.5)
+    agreement = max(ai_views, len(all_scores) - ai_views) / len(all_scores)
+    if agreement >= 0.8 and len(all_scores) >= 3:
+        if ai_views > len(all_scores) / 2:
+            ml_score = ml_score * 0.7 + 0.3
+        else:
+            ml_score = ml_score * 0.7
+
+    # #1: Return raw ml_score + confidence for dynamic weighting in combiner
+    ml_score = max(0.0, min(1.0, ml_score))
     final_label = "AI" if ml_score >= 0.5 else "HUMAN"
     final_confidence = ml_score if final_label == "AI" else 1 - ml_score
 
@@ -229,7 +268,7 @@ def predict(text):
     }
 
 
-# --- D: Sentence-level voting ---
+# --- Sentence prediction with ensemble ---
 _BATCH_SIZE = 16
 
 
@@ -247,9 +286,8 @@ def predict_sentences(sentences):
         else:
             results.append(None)
             batch_indices.append(i)
-            batch_texts.append(sentence)
+            batch_texts.append(_normalize_text(sentence))
 
-    # Process in batches with ensemble
     for batch_start in range(0, len(batch_texts), _BATCH_SIZE):
         batch = batch_texts[batch_start:batch_start + _BATCH_SIZE]
         indices = batch_indices[batch_start:batch_start + _BATCH_SIZE]
@@ -260,15 +298,9 @@ def predict_sentences(sentences):
             ai_scores = [0.5] * len(batch)
 
         for j, score in enumerate(ai_scores):
-            if score >= 0.7:
-                flag = "high"
-            elif score >= 0.4:
-                flag = "medium"
-            else:
-                flag = "low"
-
+            flag = "high" if score >= 0.7 else "medium" if score >= 0.4 else "low"
             results[indices[j]] = {
-                "text": batch[j],
+                "text": sentences[indices[j]],  # return original text, not normalized
                 "score": round(score, 2),
                 "flag": flag,
             }
