@@ -19,6 +19,7 @@ import { requestNotificationPermission, sendAnalysisNotification } from '../util
 import { saveDraft, loadDraft, clearDraft } from '../utils/draftStorage'
 import ContextualTip from '../components/ContextualTip'
 import UsageBanner from '../components/UsageBanner'
+import ReferralProgram from '../components/ReferralProgram'
 
 function Home({ onResult, onPricing, onLogin }) {
   // #7 — Restore draft from sessionStorage
@@ -286,6 +287,7 @@ function Home({ onResult, onPricing, onLogin }) {
           <div className="sr-only" aria-live="assertive" aria-atomic="true">
             {step === 'statistical' && 'جارٍ التحليل الإحصائي للنص'}
             {step === 'ml' && 'جارٍ فحص النص بنموذج الذكاء الاصطناعي'}
+            {step === 'sentences' && 'جارٍ تحليل الجمل'}
             {step === 'combining' && 'جارٍ تجميع النتائج النهائية'}
           </div>
           {step && <ProgressSteps currentStep={step} />}
@@ -405,6 +407,7 @@ function Home({ onResult, onPricing, onLogin }) {
 
           <ContextualTip id="sample"><SampleTexts onSelect={setText} hasExistingText={wordCount > 0} /></ContextualTip>
           <HistoryPanel onSelect={(item) => onResult(item)} />
+          <ReferralProgram />
 
           <FloatingToolbar onPaste={handlePasteAnalyze} onClear={() => setText('')} onSubmit={handleSubmit} canSubmit={canSubmit && isOnline && rateInfo.remaining > 0} hasText={wordCount > 0} loading={false} />
         </>

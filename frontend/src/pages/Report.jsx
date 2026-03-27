@@ -21,6 +21,8 @@ import RepetitionDetector from '../components/RepetitionDetector'
 import QuoteExtractor from '../components/QuoteExtractor'
 const WordFrequencyCloud = lazy(() => import('../components/WordFrequencyCloud'))
 import MixedTextDetector from '../components/MixedTextDetector'
+import StyleMixDetector from '../components/StyleMixDetector'
+import ParaphraseDetector from '../components/ParaphraseDetector'
 import ReliabilityMeter from '../components/ReliabilityMeter'
 import Recommendations from '../components/Recommendations'
 import AnalysisTimeline from '../components/AnalysisTimeline'
@@ -325,6 +327,12 @@ function Report({ data, onBack, onUpgrade }) {
 
       {/* Mixed text detection */}
       {sentences?.length > 0 && <ScrollReveal delay={40}><MixedTextDetector sentences={sentences} /></ScrollReveal>}
+
+      {/* #88 — Style mix detector (formal vs colloquial) */}
+      {sentences?.length > 0 && <ScrollReveal delay={42}><StyleMixDetector sentences={sentences} /></ScrollReveal>}
+
+      {/* #86 — Paraphrase detector */}
+      {sentences?.length > 0 && <ScrollReveal delay={44}><ParaphraseDetector sentences={sentences} /></ScrollReveal>}
 
       {/* #51 — Stats with CountUp animation */}
       <ScrollReveal delay={50}>
