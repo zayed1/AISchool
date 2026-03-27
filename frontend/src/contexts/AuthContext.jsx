@@ -38,7 +38,7 @@ export function AuthProvider({ children }) {
     })
   }, [])
 
-  // Fetch plan status when user changes
+  // Fetch plan status from server
   const refreshPlan = useCallback(async () => {
     try {
       const headers = {}
@@ -56,6 +56,14 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     refreshPlan()
   }, [refreshPlan])
+
+  // Increment local usage immediately (optimistic update)
+  const recordLocalUsage = useCallback(() => {
+    setPlan(prev => ({
+      ...prev,
+      usage_today: (prev.usage_today || 0) + 1,
+    }))
+  }, [])
 
   const signInWithGoogle = async () => {
     if (!supabase) return
@@ -94,7 +102,7 @@ export function AuthProvider({ children }) {
     <AuthContext.Provider value={{
       user, session, plan, loading, supabase,
       signInWithGoogle, signInWithEmail, signUpWithEmail, signOut,
-      getAuthHeaders, refreshPlan,
+      getAuthHeaders, refreshPlan, recordLocalUsage,
       isAuthenticated: !!user,
       isPro: plan.plan === 'pro' || plan.plan === 'enterprise',
     }}>

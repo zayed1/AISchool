@@ -11,6 +11,7 @@ import { analyzeTextSSE } from '../services/api'
 import { getCachedResult, setCachedResult } from '../utils/cache'
 import { useKeyboardShortcuts, useOnlineStatus } from '../hooks/useUtilities'
 import { useToast } from '../contexts/ToastContext'
+import { useAuth } from '../contexts/AuthContext'
 import { countWords } from '../utils/debounce'
 import { getRateLimitInfo, recordAnalysis, canAnalyze } from '../utils/rateLimit'
 import { isBot, isTooFast } from '../utils/honeypot'
@@ -22,6 +23,7 @@ import UsageBanner from '../components/UsageBanner'
 import ReferralProgram from '../components/ReferralProgram'
 
 function Home({ onResult, onPricing, onLogin }) {
+  const { recordLocalUsage } = useAuth()
   // #7 — Restore draft from sessionStorage
   const [text, setText] = useState(() => {
     try {
@@ -170,6 +172,7 @@ function Home({ onResult, onPricing, onLogin }) {
       if (cached) {
         cached._fromCache = true
         addToast('تم تحميل النتيجة من الذاكرة المؤقتة', 'info')
+        recordLocalUsage()
         onResult(cached)
         setLoading(false)
         return
@@ -185,6 +188,7 @@ function Home({ onResult, onPricing, onLogin }) {
       setStep(null)
       sessionStorage.removeItem('draft_text')
       clearDraft() // #3 — Clear IndexedDB draft
+      recordLocalUsage()
       addToast('تم التحليل بنجاح!', 'success')
       sendAnalysisNotification(data.result)
       onResult(data)
