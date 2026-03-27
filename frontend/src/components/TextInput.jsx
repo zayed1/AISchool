@@ -15,13 +15,16 @@ function TextInput({ value, onChange, wordCount, onFileError }) {
     return () => clearTimeout(timer)
   }, [])
 
-  // #15 — Auto-expand textarea
+  // #15 — Auto-expand textarea with max height cap
   useEffect(() => {
     const el = textareaRef.current
     if (el) {
       el.style.height = 'auto'
       const minH = window.innerWidth < 640 ? 200 : 256
-      el.style.height = Math.max(minH, el.scrollHeight) + 'px'
+      const maxH = 400
+      const newH = Math.min(maxH, Math.max(minH, el.scrollHeight))
+      el.style.height = newH + 'px'
+      el.style.overflowY = el.scrollHeight > maxH ? 'auto' : 'hidden'
     }
   }, [value])
 
