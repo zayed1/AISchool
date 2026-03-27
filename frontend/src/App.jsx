@@ -1,6 +1,7 @@
 import { useState, useEffect, lazy, Suspense } from 'react'
 import { ThemeProvider } from './contexts/ThemeContext'
 import { ToastProvider } from './contexts/ToastContext'
+import { AuthProvider } from './contexts/AuthContext'
 import ErrorBoundary from './components/ErrorBoundary'
 import OfflineBanner from './components/OfflineBanner'
 import Header from './components/Header'
@@ -22,17 +23,26 @@ const TeacherMode = lazy(() => import('./components/TeacherMode'))
 const AdminDashboard = lazy(() => import('./components/AdminDashboard'))
 const WordCounter = lazy(() => import('./components/WordCounter'))
 const TextTransformer = lazy(() => import('./components/TextTransformer'))
+const PricingPage = lazy(() => import('./components/PricingPage'))
+const AuthModal = lazy(() => import('./components/AuthModal'))
 
 function AppContent() {
   const [reportData, setReportData] = useState(null)
   const [view, setView] = useState('home')
   const [showSettings, setShowSettings] = useState(false)
+  const [showAuth, setShowAuth] = useState(false)
 
   useEffect(() => {
     const shared = parseShareLink()
     if (shared) {
       setReportData(shared)
       setView('report')
+      window.history.replaceState({}, '', window.location.pathname)
+    }
+    // Check for upgrade callback
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('upgrade') === 'success') {
+      setView('pricing')
       window.history.replaceState({}, '', window.location.pathname)
     }
   }, [])
@@ -58,13 +68,14 @@ function AppContent() {
   useEffect(() => {
     const handleKey = (e) => {
       if (e.key === 'Escape') {
+        if (showAuth) { setShowAuth(false); return }
         if (showSettings) { setShowSettings(false); return }
         if (view !== 'home') { goHome(); return }
       }
     }
     window.addEventListener('keydown', handleKey)
     return () => window.removeEventListener('keydown', handleKey)
-  }, [view, showSettings])
+  }, [view, showSettings, showAuth])
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-900 transition-colors">
@@ -80,6 +91,8 @@ function AppContent() {
         onAdminOpen={() => switchView('admin')}
         onWordCounterOpen={() => switchView('wordCounter')}
         onTransformerOpen={() => switchView('transformer')}
+        onPricingOpen={() => switchView('pricing')}
+        onLoginOpen={() => setShowAuth(true)}
         currentView={view}
       />
 
@@ -101,6 +114,7 @@ function AppContent() {
             : view === 'admin' ? <AdminDashboard onClose={goHome} />
             : view === 'wordCounter' ? <WordCounter onClose={goHome} />
             : view === 'transformer' ? <TextTransformer onClose={goHome} />
+            : view === 'pricing' ? <PricingPage onClose={goHome} onLogin={() => setShowAuth(true)} />
             : view === 'report' && reportData ? <Report data={reportData} onBack={goHome} />
             : <Home onResult={handleResult} />}
           </PageTransition>
@@ -109,6 +123,7 @@ function AppContent() {
 
       <Suspense fallback={null}>
         <SettingsPanel isOpen={showSettings} onClose={() => setShowSettings(false)} />
+        <AuthModal isOpen={showAuth} onClose={() => setShowAuth(false)} />
       </Suspense>
 
       <OfflineBanner />
@@ -122,9 +137,11 @@ function App() {
   return (
     <ThemeProvider>
       <ToastProvider>
-        <ErrorBoundary>
-          <AppContent />
-        </ErrorBoundary>
+        <AuthProvider>
+          <ErrorBoundary>
+            <AppContent />
+          </ErrorBoundary>
+        </AuthProvider>
       </ToastProvider>
     </ThemeProvider>
   )

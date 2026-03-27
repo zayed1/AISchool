@@ -7,6 +7,15 @@ const client = axios.create({
   headers: { 'Content-Type': 'application/json' },
 })
 
+// Inject auth token from Supabase session
+export function setAuthToken(token) {
+  if (token) {
+    client.defaults.headers.common['Authorization'] = `Bearer ${token}`
+  } else {
+    delete client.defaults.headers.common['Authorization']
+  }
+}
+
 async function withRetry(fn, retries = 2) {
   for (let i = 0; i <= retries; i++) {
     try {
@@ -31,16 +40,18 @@ export function analyzeTextSSE(text, onProgress) {
   return new Promise((resolve, reject) => {
     onProgress?.('statistical')
 
-    // Try real SSE endpoint first
+    const headers = { 'Content-Type': 'application/json' }
+    const authHeader = client.defaults.headers.common['Authorization']
+    if (authHeader) headers['Authorization'] = authHeader
+
     const controller = new AbortController()
     fetch(`${API_URL}/api/analyze-stream`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify({ text, detailed: true }),
       signal: controller.signal,
     }).then(async (response) => {
       if (!response.ok || !response.body) {
-        // Fallback to regular POST with simulated progress
         throw new Error('SSE not available')
       }
 
@@ -77,10 +88,8 @@ export function analyzeTextSSE(text, onProgress) {
         }
       }
 
-      // If we got here without a done event, fallback
       throw new Error('Stream ended without result')
     }).catch(async () => {
-      // Fallback: regular POST with simulated progress
       controller.abort()
       onProgress?.('statistical')
       const timer1 = setTimeout(() => onProgress?.('ml'), 600)

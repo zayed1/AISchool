@@ -19,7 +19,8 @@ from backend.db.supabase_client import save_scan, get_client
 from backend.utils.email_alerts import send_threshold_alert, is_email_configured
 from backend.utils.cache import get_cached, set_cached, cache_stats
 from backend.utils.logging import get_logger
-from backend.config import ADMIN_API_KEY
+from backend.config import ADMIN_API_KEY, PLANS
+from backend.api.auth import check_limits, record_usage
 
 log = get_logger("routes")
 router = APIRouter(prefix="/api")
@@ -133,17 +134,29 @@ def _build_metadata(words, sentences, elapsed_ms, text, stat_result, ml_result):
 @router.post("/analyze", response_model=AnalyzeResponse)
 async def analyze_text(request: AnalyzeRequest, req: Request):
     _check_rate_limit(req)
+
+    # Check user plan limits
+    user_ctx = check_limits(req)
+    text = request.text.strip()
+    words = text.split()
+
+    # Enforce word limit based on plan
+    plan_config = PLANS.get(user_ctx["plan"], PLANS["free"])
+    if len(words) > plan_config["max_words"]:
+        raise HTTPException(
+            status_code=403,
+            detail=f"خطتك ({plan_config['name']}) تسمح بحد أقصى {plan_config['max_words']} كلمة. النص يحتوي على {len(words)} كلمة.",
+        )
+
     start_time = time.time()
     stats = _get_stats()
-    text = request.text.strip()
 
     # B1 — Check cache first
     cached = get_cached(text)
     if cached:
-        log.info(f"Cache hit for text ({len(text.split())} words)")
+        record_usage(user_ctx["user_id"])
+        log.info(f"Cache hit for text ({len(words)} words)")
         return AnalyzeResponse(**cached)
-
-    words = text.split()
     stat_result = statistical_analyze(text)
     ml_result = predict(text)
     combined = combine_scores(stat_result["statistical_score"], ml_result["ml_score"], word_count=len(words))
@@ -175,6 +188,7 @@ async def analyze_text(request: AnalyzeRequest, req: Request):
 
     # B1 — Store in cache
     set_cached(text, response_data)
+    record_usage(user_ctx["user_id"])
     log.info(f"Analysis complete: {len(words)}w, {elapsed_ms}ms, score={combined['percentage']}%")
 
     return AnalyzeResponse(**response_data)
@@ -184,17 +198,25 @@ async def analyze_text(request: AnalyzeRequest, req: Request):
 @router.post("/analyze-stream")
 async def analyze_text_stream(request: AnalyzeRequest, req: Request):
     _check_rate_limit(req)
+    user_ctx = check_limits(req)
     text = request.text.strip()
     words = text.split()
-    stats = _get_stats()
 
-    # B1 — Check cache for stream too
+    plan_config = PLANS.get(user_ctx["plan"], PLANS["free"])
+    if len(words) > plan_config["max_words"]:
+        raise HTTPException(
+            status_code=403,
+            detail=f"خطتك ({plan_config['name']}) تسمح بحد أقصى {plan_config['max_words']} كلمة.",
+        )
+
+    stats = _get_stats()
     cached = get_cached(text)
 
     async def event_stream():
         start_time = time.time()
 
         if cached:
+            record_usage(user_ctx["user_id"])
             yield f"data: {json.dumps({'step': 'statistical', 'message': 'نتيجة محفوظة'})}\n\n"
             yield f"data: {json.dumps({'step': 'done', **cached})}\n\n"
             return
@@ -237,6 +259,7 @@ async def analyze_text_stream(request: AnalyzeRequest, req: Request):
         # B1 — Cache the result
         cache_data = {k: v for k, v in final_data.items() if k != "step"}
         set_cached(text, cache_data)
+        record_usage(user_ctx["user_id"])
 
         yield f"data: {json.dumps(final_data)}\n\n"
 

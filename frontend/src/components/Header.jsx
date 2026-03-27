@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { useTheme } from '../contexts/ThemeContext'
+import UsageBadge from './UsageBadge'
 
-function Header({ onCompareToggle, isCompareMode, onSettingsOpen, onHowItWorksOpen, onApiDocsOpen, onDiffOpen, onBatchOpen, onTeacherOpen, onAdminOpen, onWordCounterOpen, onTransformerOpen, currentView }) {
+function Header({ onCompareToggle, isCompareMode, onSettingsOpen, onHowItWorksOpen, onApiDocsOpen, onDiffOpen, onBatchOpen, onTeacherOpen, onAdminOpen, onWordCounterOpen, onTransformerOpen, onPricingOpen, onLoginOpen, currentView }) {
   const { dark, toggleTheme } = useTheme()
   const [menuOpen, setMenuOpen] = useState(false)
 
@@ -14,6 +15,7 @@ function Header({ onCompareToggle, isCompareMode, onSettingsOpen, onHowItWorksOp
     { label: 'لوحة المشرف', action: onAdminOpen, icon: 'M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7' },
     { label: 'حاسبة الكلمات', action: onWordCounterOpen, icon: 'M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z' },
     { label: 'محوّل النص', action: onTransformerOpen, icon: 'M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15' },
+    { label: 'خطط الاشتراك', action: onPricingOpen, icon: 'M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z' },
   ]
 
   return (
@@ -105,6 +107,8 @@ function Header({ onCompareToggle, isCompareMode, onSettingsOpen, onHowItWorksOp
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
               </svg>
             </button>
+
+            <UsageBadge onLogin={onLoginOpen} onPricing={onPricingOpen} />
 
             <div className="hidden sm:flex items-center gap-1 text-xs text-slate-400 dark:text-slate-500 mr-2">
               <kbd className="px-1.5 py-0.5 bg-slate-100 dark:bg-slate-800 rounded text-[10px] font-mono">Ctrl+Enter</kbd>

@@ -29,6 +29,7 @@ log.info("FastAPI imported OK")
 from backend.config import ALLOWED_ORIGINS
 from backend.analysis.ml_model import load_model, is_model_loaded
 from backend.api.routes import router
+from backend.api.billing import router as billing_router
 
 log.info("All modules imported OK")
 
@@ -90,6 +91,7 @@ app.add_middleware(
 )
 
 app.include_router(router)
+app.include_router(billing_router)
 
 # Serve frontend static files in production
 _static_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "static")
