@@ -50,6 +50,9 @@ class StatisticalResult(BaseModel):
     avg_word_length: float = 0.0
     punctuation_density: float = 0.0
     trigram_repetition: float = 0.0
+    preposition_density: float = 0.0
+    pronoun_ratio: float = 0.0
+    sentence_variance: float = 0.0
     statistical_score: float
 
 

@@ -309,6 +309,76 @@ def _score_trigram_repetition(ratio: float) -> float:
         return 0.15
 
 
+# C: New Arabic-specific indicators
+
+def calc_preposition_density(text: str) -> float:
+    """Arabic prepositions density — AI overuses formal prepositions."""
+    prepositions = ['في', 'من', 'إلى', 'على', 'عن', 'مع', 'بين', 'خلال', 'ضمن', 'نحو', 'حول', 'تجاه', 'لدى', 'عبر', 'دون']
+    words = text.split()
+    if not words:
+        return 0.0
+    count = sum(1 for w in words if remove_tashkeel(w) in prepositions)
+    return count / len(words)
+
+
+def calc_pronoun_ratio(text: str) -> float:
+    """First-person pronoun usage — humans use more personal pronouns."""
+    personal = ['أنا', 'أنت', 'أنتِ', 'نحن', 'أنتم', 'هم', 'هي', 'هو', 'لي', 'لنا', 'عندي', 'عندنا']
+    words = text.split()
+    if not words:
+        return 0.0
+    count = sum(1 for w in words if remove_tashkeel(w) in personal)
+    return count / len(words)
+
+
+def calc_sentence_length_variance(sentences: list[str]) -> float:
+    """Raw variance in sentence word counts — AI is unnaturally uniform."""
+    if len(sentences) < 3:
+        return 0.0
+    lengths = [len(s.split()) for s in sentences]
+    mean = sum(lengths) / len(lengths)
+    if mean == 0:
+        return 0.0
+    variance = sum((l - mean) ** 2 for l in lengths) / len(lengths)
+    return variance
+
+
+def _score_preposition_density(density: float) -> float:
+    """High preposition density = more formal/AI-like."""
+    if density >= 0.12:
+        return 0.85
+    elif density >= 0.08:
+        return 0.6
+    elif density >= 0.05:
+        return 0.4
+    else:
+        return 0.2
+
+
+def _score_pronoun_ratio(ratio: float) -> float:
+    """Low pronoun usage = AI-like (AI avoids first-person)."""
+    if ratio <= 0.005:
+        return 0.85  # almost no personal pronouns = AI
+    elif ratio <= 0.01:
+        return 0.6
+    elif ratio <= 0.02:
+        return 0.35
+    else:
+        return 0.1  # lots of pronouns = very human
+
+
+def _score_sentence_variance(variance: float) -> float:
+    """Low variance = AI-like uniform sentence lengths."""
+    if variance <= 5:
+        return 0.9  # extremely uniform = AI
+    elif variance <= 15:
+        return 0.7
+    elif variance <= 30:
+        return 0.4
+    else:
+        return 0.15  # high variance = human
+
+
 def _score_ttr(ttr: float) -> float:
     # AI text often has HIGH TTR (formal, no repetition) OR very LOW (template)
     # Human text is moderate. Both extremes are suspicious.
@@ -397,24 +467,33 @@ def analyze(text: str) -> dict:
     subordinate_ratio = calc_subordinate_ratio(sentences)
     passive_ratio = calc_passive_ratio(sentences)
 
-    # B15/B16 — New indicators
+    # B15/B16 — Additional indicators
     avg_word_len = calc_avg_word_length(words)
     punct_density = calc_punctuation_density(text)
     trigram_rep = calc_trigram_repetition(sentences)
 
+    # C — Arabic-specific indicators
+    preposition_density = calc_preposition_density(text)
+    pronoun_ratio = calc_pronoun_ratio(text)
+    sent_variance = calc_sentence_length_variance(sentences)
+
+    # 15 indicators total — weights sum to 1.0
     weights = {
-        "ttr": 0.14,
-        "sentence_cv": 0.14,
-        "openers": 0.10,
-        "connectors": 0.10,
-        "errors": 0.10,
-        "burstiness": 0.10,
-        "opener_diversity": 0.07,
-        "subordinate": 0.05,
-        "passive": 0.05,
-        "avg_word_length": 0.05,
-        "punctuation": 0.05,
+        "ttr": 0.10,
+        "sentence_cv": 0.10,
+        "openers": 0.09,
+        "connectors": 0.09,
+        "errors": 0.09,
+        "burstiness": 0.08,
+        "opener_diversity": 0.06,
+        "subordinate": 0.04,
+        "passive": 0.04,
+        "avg_word_length": 0.04,
+        "punctuation": 0.04,
         "trigram_rep": 0.05,
+        "prepositions": 0.06,
+        "pronouns": 0.07,
+        "sent_variance": 0.05,
     }
 
     statistical_score = (
@@ -430,6 +509,9 @@ def analyze(text: str) -> dict:
         + weights["avg_word_length"] * _score_avg_word_length(avg_word_len)
         + weights["punctuation"] * _score_punctuation_density(punct_density)
         + weights["trigram_rep"] * _score_trigram_repetition(trigram_rep)
+        + weights["prepositions"] * _score_preposition_density(preposition_density)
+        + weights["pronouns"] * _score_pronoun_ratio(pronoun_ratio)
+        + weights["sent_variance"] * _score_sentence_variance(sent_variance)
     )
 
     return {
@@ -445,5 +527,8 @@ def analyze(text: str) -> dict:
         "avg_word_length": round(avg_word_len, 2),
         "punctuation_density": round(punct_density, 3),
         "trigram_repetition": round(trigram_rep, 4),
+        "preposition_density": round(preposition_density, 3),
+        "pronoun_ratio": round(pronoun_ratio, 3),
+        "sentence_variance": round(sent_variance, 1),
         "statistical_score": round(statistical_score, 2),
     }
