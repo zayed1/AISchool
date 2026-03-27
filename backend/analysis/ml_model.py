@@ -39,9 +39,11 @@ def load_model():
 
         from tokenizers import Tokenizer
         _tokenizer = Tokenizer.from_file(_TOKENIZER_PATH)
-        _tokenizer.enable_padding(pad_id=0, pad_token="[PAD]", length=512)
+        # Dynamic padding — pad to longest in batch, not fixed 512
+        # This preserves signal for short texts instead of drowning in padding
+        _tokenizer.enable_padding(pad_id=0, pad_token="[PAD]")
         _tokenizer.enable_truncation(max_length=512)
-        log.info("Tokenizer loaded OK (lightweight)")
+        log.info("Tokenizer loaded OK (lightweight, dynamic padding)")
 
         label_path = os.path.join(_ONNX_DIR, "label_map.json")
         if os.path.isfile(label_path):

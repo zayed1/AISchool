@@ -33,5 +33,9 @@ def set_cached(text: str, data: dict):
         _cache.popitem(last=False)
 
 
+def clear_cache():
+    _cache.clear()
+
+
 def cache_stats() -> dict:
     return {"size": len(_cache), "max_size": _MAX_SIZE, "ttl": _TTL_SECONDS}
