@@ -18,8 +18,9 @@ import { cleanTextForAnalysis, smartPasteClean } from '../utils/textCleaner'
 import { requestNotificationPermission, sendAnalysisNotification } from '../utils/notifications'
 import { saveDraft, loadDraft, clearDraft } from '../utils/draftStorage'
 import ContextualTip from '../components/ContextualTip'
+import UsageBanner from '../components/UsageBanner'
 
-function Home({ onResult }) {
+function Home({ onResult, onPricing, onLogin }) {
   // #7 — Restore draft from sessionStorage
   const [text, setText] = useState(() => {
     try {
@@ -250,6 +251,9 @@ function Home({ onResult }) {
         <h2 className="text-2xl sm:text-3xl font-bold text-slate-800 dark:text-slate-100">تحقق من النص</h2>
         <p className="text-slate-500 dark:text-slate-400 text-sm sm:text-base">الصق النص العربي المراد فحصه وسنحلله لك باستخدام الذكاء الاصطناعي والتحليل الإحصائي</p>
       </div>
+
+      {/* Usage banner for free users */}
+      <UsageBanner onPricing={onPricing} onLogin={onLogin} />
 
       {/* #3 — Draft recovery banner */}
       {draftRecovery && !text && (
