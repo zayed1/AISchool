@@ -1,5 +1,26 @@
 // Repetition detector — finds repeated/similar phrases within text
-import { useMemo } from 'react'
+import { useState, useMemo } from 'react'
+
+// Truncated text box with expand toggle
+function TruncatedBox({ children, className }) {
+  const [expanded, setExpanded] = useState(false)
+  return (
+    <div className={`${className} relative`}>
+      <div className={expanded ? '' : 'max-h-[3.5rem] overflow-hidden'}>
+        {children}
+      </div>
+      {!expanded && (
+        <div className="absolute bottom-0 inset-x-0 h-6 bg-gradient-to-t from-inherit pointer-events-none" />
+      )}
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="text-[10px] font-medium text-primary-500 hover:text-primary-600 dark:text-primary-400 mt-1"
+      >
+        {expanded ? 'تقليص' : 'عرض الكل'}
+      </button>
+    </div>
+  )
+}
 
 function RepetitionDetector({ sentences }) {
   const analysis = useMemo(() => {
@@ -9,7 +30,6 @@ function RepetitionDetector({ sentences }) {
     const duplicates = []
     const similarPairs = []
 
-    // Find exact/near-exact duplicates
     for (let i = 0; i < texts.length; i++) {
       for (let j = i + 1; j < texts.length; j++) {
         const a = texts[i].replace(/[^\u0600-\u06FF\s]/g, '').trim()
@@ -19,7 +39,6 @@ function RepetitionDetector({ sentences }) {
         if (a === b) {
           duplicates.push({ i, j, text: texts[i] })
         } else {
-          // Simple similarity: shared words ratio
           const wordsA = new Set(a.split(/\s+/))
           const wordsB = new Set(b.split(/\s+/))
           const intersection = [...wordsA].filter((w) => wordsB.has(w)).length
@@ -33,7 +52,6 @@ function RepetitionDetector({ sentences }) {
       }
     }
 
-    // Find repeated n-grams (3-word phrases)
     const ngrams = {}
     texts.forEach((text, sIdx) => {
       const words = text.split(/\s+/)
@@ -70,25 +88,36 @@ function RepetitionDetector({ sentences }) {
       {analysis.duplicates.length > 0 && (
         <div className="mb-4">
           <p className="text-xs font-medium text-red-600 dark:text-red-400 mb-2">جمل مكررة حرفياً ({analysis.duplicates.length})</p>
-          {analysis.duplicates.map((d, i) => (
-            <div key={i} className="bg-red-50 dark:bg-red-900/10 rounded-lg p-2 mb-1 text-xs text-red-700 dark:text-red-400">
-              جملة {d.i + 1} = جملة {d.j + 1}: "{d.text.slice(0, 60)}..."
-            </div>
-          ))}
+          <div className="space-y-2">
+            {analysis.duplicates.map((d, i) => (
+              <TruncatedBox key={i} className="bg-red-50 dark:bg-red-900/10 rounded-lg p-3 text-xs text-red-700 dark:text-red-400">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="shrink-0 px-1.5 py-0.5 bg-red-200 dark:bg-red-800/40 rounded text-[10px] font-bold">جملة {d.i + 1} = جملة {d.j + 1}</span>
+                </div>
+                <p className="leading-relaxed">{d.text}</p>
+              </TruncatedBox>
+            ))}
+          </div>
         </div>
       )}
 
       {analysis.similarPairs.length > 0 && (
         <div className="mb-4">
           <p className="text-xs font-medium text-amber-600 dark:text-amber-400 mb-2">جمل متشابهة</p>
-          {analysis.similarPairs.map((p, i) => (
-            <div key={i} className="bg-amber-50 dark:bg-amber-900/10 rounded-lg p-2 mb-1 text-xs">
-              <div className="flex justify-between mb-1">
-                <span className="text-amber-700 dark:text-amber-400">جملة {p.i + 1} ↔ جملة {p.j + 1}</span>
-                <span className="font-bold text-amber-600">{p.similarity}% تشابه</span>
-              </div>
-            </div>
-          ))}
+          <div className="space-y-2">
+            {analysis.similarPairs.map((p, i) => (
+              <TruncatedBox key={i} className="bg-amber-50 dark:bg-amber-900/10 rounded-lg p-3 text-xs">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-amber-700 dark:text-amber-400 font-medium">جملة {p.i + 1} ↔ جملة {p.j + 1}</span>
+                  <span className="shrink-0 px-1.5 py-0.5 bg-amber-200 dark:bg-amber-800/40 rounded text-[10px] font-bold text-amber-700 dark:text-amber-300">{p.similarity}%</span>
+                </div>
+                <div className="space-y-1.5">
+                  <p className="text-amber-800 dark:text-amber-300 leading-relaxed border-r-2 border-amber-300 dark:border-amber-600 pr-2">{p.textA}</p>
+                  <p className="text-amber-700 dark:text-amber-400 leading-relaxed border-r-2 border-amber-200 dark:border-amber-700 pr-2">{p.textB}</p>
+                </div>
+              </TruncatedBox>
+            ))}
+          </div>
         </div>
       )}
 

@@ -140,17 +140,17 @@ function DiffTracker({ onClose }) {
           )}
 
           {/* Diff display */}
-          <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4 leading-[2.2] text-base" dir="rtl">
+          <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4 sm:p-6 leading-[2.2] text-base font-inherit" dir="rtl" style={{ fontFamily: 'inherit' }}>
             {diff.map((d, i) => (
               <span
                 key={i}
-                className={`inline mx-0.5 px-0.5 rounded ${
-                  d.type === 'added' ? 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300 underline decoration-green-400'
-                  : d.type === 'removed' ? 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300 line-through'
+                className={`inline mx-0.5 px-1 py-0.5 rounded ${
+                  d.type === 'added' ? 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300 border border-green-300 dark:border-green-700'
+                  : d.type === 'removed' ? 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300 opacity-60'
                   : 'text-slate-700 dark:text-slate-300'
                 }`}
               >
-                {d.word}
+                {d.type === 'removed' ? <s>{d.word}</s> : d.word}
               </span>
             ))}
           </div>

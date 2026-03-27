@@ -21,6 +21,8 @@ import RepetitionDetector from '../components/RepetitionDetector'
 import QuoteExtractor from '../components/QuoteExtractor'
 const WordFrequencyCloud = lazy(() => import('../components/WordFrequencyCloud'))
 import MixedTextDetector from '../components/MixedTextDetector'
+import StyleMixDetector from '../components/StyleMixDetector'
+import ParaphraseDetector from '../components/ParaphraseDetector'
 import ReliabilityMeter from '../components/ReliabilityMeter'
 import Recommendations from '../components/Recommendations'
 import AnalysisTimeline from '../components/AnalysisTimeline'
@@ -39,6 +41,7 @@ import { exportReportAsDOCX } from '../utils/docxExport'
 import { generateShareLink } from '../utils/share'
 import { launchConfetti } from '../utils/confetti'
 import { useToast } from '../contexts/ToastContext'
+import ProGate from '../components/ProGate'
 
 const PresentationMode = lazy(() => import('../components/PresentationMode'))
 
@@ -151,7 +154,7 @@ const sections = [
   { id: 'section-sentences', label: 'الجمل' },
 ]
 
-function Report({ data, onBack }) {
+function Report({ data, onBack, onUpgrade }) {
   const { result, statistical, ml, sentences, metadata } = data
   const [copied, setCopied] = useState(false)
   const [copyAnim, setCopyAnim] = useState(false)
@@ -325,6 +328,12 @@ function Report({ data, onBack }) {
       {/* Mixed text detection */}
       {sentences?.length > 0 && <ScrollReveal delay={40}><MixedTextDetector sentences={sentences} /></ScrollReveal>}
 
+      {/* #88 — Style mix detector (formal vs colloquial) */}
+      {sentences?.length > 0 && <ScrollReveal delay={42}><StyleMixDetector sentences={sentences} /></ScrollReveal>}
+
+      {/* #86 — Paraphrase detector */}
+      {sentences?.length > 0 && <ScrollReveal delay={44}><ParaphraseDetector sentences={sentences} /></ScrollReveal>}
+
       {/* #51 — Stats with CountUp animation */}
       <ScrollReveal delay={50}>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 text-center">
@@ -368,47 +377,48 @@ function Report({ data, onBack }) {
         </div>
       </ScrollReveal>
 
-      {/* #4 — Creativity score */}
-      <ScrollReveal delay={140}><CreativityScore statistical={statistical} sentences={sentences} /></ScrollReveal>
+      {/* === PREMIUM SECTIONS — gated for free users === */}
+      <ProGate onUpgrade={onUpgrade} label="درجة الإبداع وتحليل الأسلوب">
+        <ScrollReveal delay={140}><CreativityScore statistical={statistical} sentences={sentences} /></ScrollReveal>
+        <ScrollReveal delay={150}><div id="section-style"><StyleAnalysis text={fullText} statistical={statistical} /></div></ScrollReveal>
+      </ProGate>
 
-      {/* Style analysis */}
-      <ScrollReveal delay={150}><div id="section-style"><StyleAnalysis text={fullText} statistical={statistical} /></div></ScrollReveal>
+      <ProGate onUpgrade={onUpgrade} label="مقارنة المتوسطات ومخطط الرادار">
+        <ScrollReveal delay={180}><AverageComparison statistical={statistical} /></ScrollReveal>
+        <ScrollReveal delay={200}><div id="section-radar"><Suspense fallback={LazyFallback}><RadarChart statistical={statistical} /></Suspense></div></ScrollReveal>
+      </ProGate>
 
-      {/* Average comparison */}
-      <ScrollReveal delay={180}><AverageComparison statistical={statistical} /></ScrollReveal>
-
-      <ScrollReveal delay={200}><div id="section-radar"><Suspense fallback={LazyFallback}><RadarChart statistical={statistical} /></Suspense></div></ScrollReveal>
-
-      {/* #16/#17 — Collapsible indicators section */}
-      <ScrollReveal delay={250}>
-        <CollapsibleSection id="section-indicators" title="المؤشرات الإحصائية" primary>
-          <div className="space-y-5">
-            {Object.entries(indicatorLabels).map(([key, label]) => (
-              <IndicatorBar key={key} label={label} value={statistical[key]} maxValue={indicatorMaxValues[key]} />
-            ))}
-          </div>
-        </CollapsibleSection>
-      </ScrollReveal>
-
-      {sentences?.length > 0 && <ScrollReveal delay={300}><div id="section-paragraphs"><MemoParagraphAnalysis sentences={sentences} /></div></ScrollReveal>}
-      {/* #1 — Paragraph heatmap */}
-      {sentences?.length > 0 && <ScrollReveal delay={310}><Suspense fallback={LazyFallback}><ParagraphHeatmap sentences={sentences} /></Suspense></ScrollReveal>}
-      {/* #3 — Template detector */}
-      {sentences?.length > 0 && <ScrollReveal delay={315}><TemplateDetector sentences={sentences} /></ScrollReveal>}
-      {sentences?.length > 0 && <ScrollReveal delay={320}><RepetitionDetector sentences={sentences} /></ScrollReveal>}
-      {sentences?.length > 0 && <ScrollReveal delay={340}><QuoteExtractor sentences={sentences} /></ScrollReveal>}
-      {sentences?.length > 0 && <ScrollReveal delay={350}><div id="section-sentences"><Suspense fallback={LazyFallback}><SentenceHighlight sentences={sentences} /></Suspense></div></ScrollReveal>}
-      {sentences?.length > 0 && <ScrollReveal delay={370}><Suspense fallback={LazyFallback}><WordFrequencyCloud sentences={sentences} /></Suspense></ScrollReveal>}
-
-      {sentences?.length > 0 && (
-        <ScrollReveal delay={400}>
-          <button onClick={() => setShowHeatmap(!showHeatmap)} className="w-full text-sm text-slate-500 dark:text-slate-400 hover:text-primary-600 dark:hover:text-primary-400 transition-colors py-2 flex items-center justify-center gap-2 no-print">
-            <svg className={`w-4 h-4 transition-transform ${showHeatmap ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
-            {showHeatmap ? 'إخفاء' : 'عرض'} خريطة الكلمات الحرارية التفاعلية
-          </button>
-          {showHeatmap && <Suspense fallback={LazyFallback}><WordHeatmap sentences={sentences} /></Suspense>}
+      <ProGate onUpgrade={onUpgrade} label="المؤشرات الإحصائية التفصيلية">
+        <ScrollReveal delay={250}>
+          <CollapsibleSection id="section-indicators" title="المؤشرات الإحصائية" primary>
+            <div className="space-y-5">
+              {Object.entries(indicatorLabels).map(([key, label]) => (
+                <IndicatorBar key={key} label={label} value={statistical[key]} maxValue={indicatorMaxValues[key]} />
+              ))}
+            </div>
+          </CollapsibleSection>
         </ScrollReveal>
-      )}
+      </ProGate>
+
+      <ProGate onUpgrade={onUpgrade} label="تحليل الفقرات والجمل">
+        {sentences?.length > 0 && <ScrollReveal delay={300}><div id="section-paragraphs"><MemoParagraphAnalysis sentences={sentences} /></div></ScrollReveal>}
+        {sentences?.length > 0 && <ScrollReveal delay={310}><Suspense fallback={LazyFallback}><ParagraphHeatmap sentences={sentences} /></Suspense></ScrollReveal>}
+        {sentences?.length > 0 && <ScrollReveal delay={315}><TemplateDetector sentences={sentences} /></ScrollReveal>}
+        {sentences?.length > 0 && <ScrollReveal delay={320}><RepetitionDetector sentences={sentences} /></ScrollReveal>}
+        {sentences?.length > 0 && <ScrollReveal delay={340}><QuoteExtractor sentences={sentences} /></ScrollReveal>}
+        {sentences?.length > 0 && <ScrollReveal delay={350}><div id="section-sentences"><Suspense fallback={LazyFallback}><SentenceHighlight sentences={sentences} /></Suspense></div></ScrollReveal>}
+        {sentences?.length > 0 && <ScrollReveal delay={370}><Suspense fallback={LazyFallback}><WordFrequencyCloud sentences={sentences} /></Suspense></ScrollReveal>}
+
+        {sentences?.length > 0 && (
+          <ScrollReveal delay={400}>
+            <button onClick={() => setShowHeatmap(!showHeatmap)} className="w-full text-sm text-slate-500 dark:text-slate-400 hover:text-primary-600 dark:hover:text-primary-400 transition-colors py-2 flex items-center justify-center gap-2 no-print">
+              <svg className={`w-4 h-4 transition-transform ${showHeatmap ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+              {showHeatmap ? 'إخفاء' : 'عرض'} خريطة الكلمات الحرارية التفاعلية
+            </button>
+            {showHeatmap && <Suspense fallback={LazyFallback}><WordHeatmap sentences={sentences} /></Suspense>}
+          </ScrollReveal>
+        )}
+      </ProGate>
 
       <ScrollReveal delay={450}>
         <div className="flex flex-wrap gap-3 justify-center no-print">

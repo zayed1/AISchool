@@ -115,8 +115,8 @@ function AppContent() {
             : view === 'wordCounter' ? <WordCounter onClose={goHome} />
             : view === 'transformer' ? <TextTransformer onClose={goHome} />
             : view === 'pricing' ? <PricingPage onClose={goHome} onLogin={() => setShowAuth(true)} />
-            : view === 'report' && reportData ? <Report data={reportData} onBack={goHome} />
-            : <Home onResult={handleResult} />}
+            : view === 'report' && reportData ? <Report data={reportData} onBack={goHome} onUpgrade={() => switchView('pricing')} />
+            : <Home onResult={handleResult} onPricing={() => switchView('pricing')} onLogin={() => setShowAuth(true)} />}
           </PageTransition>
         </Suspense>
       </main>

@@ -18,8 +18,10 @@ import { cleanTextForAnalysis, smartPasteClean } from '../utils/textCleaner'
 import { requestNotificationPermission, sendAnalysisNotification } from '../utils/notifications'
 import { saveDraft, loadDraft, clearDraft } from '../utils/draftStorage'
 import ContextualTip from '../components/ContextualTip'
+import UsageBanner from '../components/UsageBanner'
+import ReferralProgram from '../components/ReferralProgram'
 
-function Home({ onResult }) {
+function Home({ onResult, onPricing, onLogin }) {
   // #7 — Restore draft from sessionStorage
   const [text, setText] = useState(() => {
     try {
@@ -251,6 +253,9 @@ function Home({ onResult }) {
         <p className="text-slate-500 dark:text-slate-400 text-sm sm:text-base">الصق النص العربي المراد فحصه وسنحلله لك باستخدام الذكاء الاصطناعي والتحليل الإحصائي</p>
       </div>
 
+      {/* Usage banner for free users */}
+      <UsageBanner onPricing={onPricing} onLogin={onLogin} />
+
       {/* #3 — Draft recovery banner */}
       {draftRecovery && !text && (
         <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3 flex items-center justify-between">
@@ -282,6 +287,7 @@ function Home({ onResult }) {
           <div className="sr-only" aria-live="assertive" aria-atomic="true">
             {step === 'statistical' && 'جارٍ التحليل الإحصائي للنص'}
             {step === 'ml' && 'جارٍ فحص النص بنموذج الذكاء الاصطناعي'}
+            {step === 'sentences' && 'جارٍ تحليل الجمل'}
             {step === 'combining' && 'جارٍ تجميع النتائج النهائية'}
           </div>
           {step && <ProgressSteps currentStep={step} />}
@@ -401,6 +407,7 @@ function Home({ onResult }) {
 
           <ContextualTip id="sample"><SampleTexts onSelect={setText} hasExistingText={wordCount > 0} /></ContextualTip>
           <HistoryPanel onSelect={(item) => onResult(item)} />
+          <ReferralProgram />
 
           <FloatingToolbar onPaste={handlePasteAnalyze} onClear={() => setText('')} onSubmit={handleSubmit} canSubmit={canSubmit && isOnline && rateInfo.remaining > 0} hasText={wordCount > 0} loading={false} />
         </>
