@@ -217,7 +217,7 @@ function CompareView({ onBack }) {
               <span className={`w-3 h-3 rounded-full ${colors[i]}`} />
               <p className="text-sm font-medium text-slate-600 dark:text-slate-400">النص {labels[i]}</p>
             </div>
-            <TextInput value={texts[i]} onChange={(v) => updateText(i, v)} wordCount={wordCounts[i]} />
+            <TextInput value={texts[i]} onChange={(v) => updateText(i, v)} wordCount={wordCounts[i]} onFileError={(msg) => addToast(msg, 'error', 5000)} />
           </div>
         ))}
       </div>

@@ -91,8 +91,9 @@ function Home({ onResult }) {
   const rateInfo = getRateLimitInfo()
   const wordsNeeded = Math.max(0, 50 - wordCount)
 
-  // #41 — Enhanced smart paste with detailed notification
+  // Clear error when user modifies text
   const handleTextChange = useCallback((newText) => {
+    if (error) setError('')
     if (newText.length > text.length + 20) {
       const { text: cleaned, changes } = smartPasteClean(newText)
       const removedChars = newText.length - cleaned.length
@@ -288,7 +289,7 @@ function Home({ onResult }) {
         </div>
       ) : (
         <>
-          <TextInput value={text} onChange={handleTextChange} wordCount={wordCount} />
+          <TextInput value={text} onChange={handleTextChange} wordCount={wordCount} onFileError={(msg) => addToast(msg, 'error', 5000)} />
 
           {wordCount > 0 && wordCount < 50 && (
             <div className="flex items-center justify-center gap-3 py-1">
@@ -398,7 +399,7 @@ function Home({ onResult }) {
             </div>
           </div>
 
-          <ContextualTip id="sample"><SampleTexts onSelect={setText} /></ContextualTip>
+          <ContextualTip id="sample"><SampleTexts onSelect={setText} hasExistingText={wordCount > 0} /></ContextualTip>
           <HistoryPanel onSelect={(item) => onResult(item)} />
 
           <FloatingToolbar onPaste={handlePasteAnalyze} onClear={() => setText('')} onSubmit={handleSubmit} canSubmit={canSubmit && isOnline && rateInfo.remaining > 0} hasText={wordCount > 0} loading={false} />

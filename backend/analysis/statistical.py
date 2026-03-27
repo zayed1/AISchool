@@ -136,11 +136,20 @@ def calc_error_ratio(words: list[str]) -> float:
     if not words:
         return 0.0
 
+    # B17 — Expanded error patterns common in human Arabic writing
     error_patterns = [
-        (r'إن شاء الله', 'إنشاء الله'),
-        (r'هاذا', 'هذا'),
-        (r'هاذه', 'هذه'),
-        (r'لاكن', 'لكن'),
+        ('إنشاء الله', 'إن شاء الله'),
+        ('هاذا', 'هذا'),
+        ('هاذه', 'هذه'),
+        ('لاكن', 'لكن'),
+        ('ضروري', 'ضروري'),  # placeholder
+    ]
+
+    # Common human misspellings
+    human_misspellings = [
+        'إنشالله', 'انشاء الله', 'هاض', 'هاي', 'ليه', 'ايش',
+        'وش', 'كذا', 'عشان', 'علشان', 'بالزات', 'لأنو',
+        'لانه', 'هادا', 'داك', 'ذاك', 'هيك', 'هيج',
     ]
 
     ta_marbuta_words_ending_ha = 0
@@ -150,8 +159,12 @@ def calc_error_ratio(words: list[str]) -> float:
 
     text = " ".join(words)
     error_count = 0
-    for _, wrong in error_patterns:
+    for wrong, _ in error_patterns:
         error_count += text.count(wrong)
+
+    # Count human misspelling patterns
+    for misspelling in human_misspellings:
+        error_count += text.count(misspelling)
 
     hamza_errors = len(re.findall(r'ء[اوي]', text))
     error_count += hamza_errors
@@ -227,6 +240,73 @@ def calc_passive_ratio(sentences: list[str]) -> float:
         if any(clean.startswith(p) for p in ['يُ', 'تُ', 'يتم', 'تتم']):
             passive_count += 1
     return round(passive_count / len(words), 4)
+
+
+# B15 — New indicator: average word length (AI tends to use longer formal words)
+def calc_avg_word_length(words: list[str]) -> float:
+    if not words:
+        return 0.0
+    return sum(len(w) for w in words) / len(words)
+
+
+# B15 — New indicator: punctuation density (humans use more varied punctuation)
+def calc_punctuation_density(text: str) -> float:
+    words = text.split()
+    if not words:
+        return 0.0
+    punct_count = len(re.findall(r'[،؛؟!.,:;\-–—…\(\)\[\]«»""\']', text))
+    return punct_count / len(words)
+
+
+# B16 — New indicator: trigram repetition ratio
+def calc_trigram_repetition(sentences: list[str]) -> float:
+    """Measures repeated 3-word sequences. AI text has more repeated n-grams."""
+    if not sentences:
+        return 0.0
+    text = " ".join(sentences)
+    words = [remove_tashkeel(w) for w in text.split() if w]
+    if len(words) < 6:
+        return 0.0
+    trigrams = [" ".join(words[i:i+3]) for i in range(len(words) - 2)]
+    counts = Counter(trigrams)
+    repeated = sum(c - 1 for c in counts.values() if c > 1)
+    return round(repeated / len(trigrams), 4) if trigrams else 0.0
+
+
+def _score_avg_word_length(avg_len: float) -> float:
+    """AI uses longer, more formal words."""
+    if avg_len >= 5.5:
+        return 0.85
+    elif avg_len >= 4.5:
+        return 0.6
+    elif avg_len >= 3.5:
+        return 0.35
+    else:
+        return 0.15
+
+
+def _score_punctuation_density(density: float) -> float:
+    """Low punctuation = more AI-like (AI uses minimal punctuation)."""
+    if density <= 0.03:
+        return 0.8
+    elif density <= 0.06:
+        return 0.5
+    elif density <= 0.1:
+        return 0.3
+    else:
+        return 0.15
+
+
+def _score_trigram_repetition(ratio: float) -> float:
+    """Higher repetition = more AI-like."""
+    if ratio >= 0.03:
+        return 0.9
+    elif ratio >= 0.015:
+        return 0.65
+    elif ratio >= 0.005:
+        return 0.4
+    else:
+        return 0.15
 
 
 def _score_ttr(ttr: float) -> float:
@@ -307,22 +387,28 @@ def analyze(text: str) -> dict:
     connector_density = calc_connector_density(sentences)
     error_ratio = calc_error_ratio(words)
     burstiness = calc_burstiness(sentences)
-
-    # New indicators
     opener_diversity = calc_paragraph_opener_diversity(sentences)
     subordinate_ratio = calc_subordinate_ratio(sentences)
     passive_ratio = calc_passive_ratio(sentences)
 
+    # B15/B16 — New indicators
+    avg_word_len = calc_avg_word_length(words)
+    punct_density = calc_punctuation_density(text)
+    trigram_rep = calc_trigram_repetition(sentences)
+
     weights = {
-        "ttr": 0.16,
-        "sentence_cv": 0.16,
-        "openers": 0.12,
-        "connectors": 0.12,
-        "errors": 0.12,
-        "burstiness": 0.12,
-        "opener_diversity": 0.08,
-        "subordinate": 0.06,
-        "passive": 0.06,
+        "ttr": 0.14,
+        "sentence_cv": 0.14,
+        "openers": 0.10,
+        "connectors": 0.10,
+        "errors": 0.10,
+        "burstiness": 0.10,
+        "opener_diversity": 0.07,
+        "subordinate": 0.05,
+        "passive": 0.05,
+        "avg_word_length": 0.05,
+        "punctuation": 0.05,
+        "trigram_rep": 0.05,
     }
 
     statistical_score = (
@@ -335,6 +421,9 @@ def analyze(text: str) -> dict:
         + weights["opener_diversity"] * _score_opener_diversity(opener_diversity)
         + weights["subordinate"] * _score_subordinate(subordinate_ratio)
         + weights["passive"] * _score_passive(passive_ratio)
+        + weights["avg_word_length"] * _score_avg_word_length(avg_word_len)
+        + weights["punctuation"] * _score_punctuation_density(punct_density)
+        + weights["trigram_rep"] * _score_trigram_repetition(trigram_rep)
     )
 
     return {
@@ -347,5 +436,8 @@ def analyze(text: str) -> dict:
         "opener_diversity": round(opener_diversity, 3),
         "subordinate_ratio": round(subordinate_ratio, 3),
         "passive_ratio": round(passive_ratio, 4),
+        "avg_word_length": round(avg_word_len, 2),
+        "punctuation_density": round(punct_density, 3),
+        "trigram_repetition": round(trigram_rep, 4),
         "statistical_score": round(statistical_score, 2),
     }
