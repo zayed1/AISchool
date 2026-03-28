@@ -34,11 +34,16 @@ class UserStatusResponse(BaseModel):
 async def get_status(request: Request):
     user = get_current_user(request)
     if not user:
+        # Anonymous — track by IP
+        ip = request.headers.get("x-forwarded-for", request.client.host if request.client else "anon")
+        anon_id = f"anon:{ip}"
+        usage = get_usage_today(anon_id)
         plan_config = PLANS["free"]
         return UserStatusResponse(
             authenticated=False,
             plan="free",
             plan_name=plan_config["name"],
+            usage_today=usage,
             daily_limit=plan_config["daily_limit"],
             max_words=plan_config["max_words"],
             features=plan_config["features"],

@@ -20,36 +20,12 @@ from backend.db.supabase_client import save_scan, get_client
 from backend.utils.email_alerts import send_threshold_alert, is_email_configured
 from backend.utils.cache import get_cached, set_cached, cache_stats
 from backend.utils.logging import get_logger
+from backend.utils.protection import check_protection, get_protection_stats
 from backend.config import ADMIN_API_KEY, PLANS
 from backend.api.auth import check_limits, record_usage
 
 log = get_logger("routes")
 router = APIRouter(prefix="/api")
-
-
-# --- B6: Simple in-memory rate limiter ---
-_rate_store: dict[str, list[float]] = {}
-_RATE_LIMIT = int(os.getenv("RATE_LIMIT", "30"))  # requests per window
-_RATE_WINDOW = 60  # seconds
-
-
-def _get_client_ip(request: Request) -> str:
-    forwarded = request.headers.get("x-forwarded-for")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    return request.client.host if request.client else "unknown"
-
-
-def _check_rate_limit(request: Request):
-    ip = _get_client_ip(request)
-    now = time.time()
-    hits = _rate_store.get(ip, [])
-    hits = [t for t in hits if now - t < _RATE_WINDOW]
-    if len(hits) >= _RATE_LIMIT:
-        log.warning(f"Rate limit exceeded for {ip}")
-        raise HTTPException(status_code=429, detail=f"تم تجاوز الحد الأقصى ({_RATE_LIMIT} طلب/دقيقة). حاول بعد قليل.")
-    hits.append(now)
-    _rate_store[ip] = hits
 
 
 # --- B7: Admin API key authentication ---
@@ -134,7 +110,7 @@ def _build_metadata(words, sentences, elapsed_ms, text, stat_result, ml_result):
 
 @router.post("/analyze", response_model=AnalyzeResponse)
 async def analyze_text(request: AnalyzeRequest, req: Request):
-    _check_rate_limit(req)
+    check_protection(req, is_analyze=True)
 
     # Check user plan limits
     user_ctx = check_limits(req)
@@ -211,7 +187,7 @@ async def analyze_text(request: AnalyzeRequest, req: Request):
 # B3 — SSE streaming (removed artificial delays)
 @router.post("/analyze-stream")
 async def analyze_text_stream(request: AnalyzeRequest, req: Request):
-    _check_rate_limit(req)
+    check_protection(req, is_analyze=True)
     user_ctx = check_limits(req)
     text = request.text.strip()
     words = text.split()
@@ -430,6 +406,12 @@ async def admin_cache_stats(req: Request):
     return cache_stats()
 
 
+@router.get("/admin/protection")
+async def admin_protection_stats(req: Request):
+    _require_admin(req)
+    return get_protection_stats()
+
+
 # ====== URL EXTRACTION (B8: SSRF protection, B10: sanitization) ======
 
 # B8 — Block private/internal IPs
@@ -474,7 +456,7 @@ class FetchUrlResponse(BaseModel):
 
 @router.post("/fetch-url", response_model=FetchUrlResponse)
 async def fetch_url_content(request: FetchUrlRequest, req: Request):
-    _check_rate_limit(req)
+    check_protection(req)
     import httpx
 
     url = request.url.strip()
