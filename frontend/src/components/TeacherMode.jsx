@@ -1,7 +1,9 @@
 // Teacher mode — analyze multiple student submissions
 import { useState, useRef } from 'react'
 import { analyzeText } from '../services/api'
+import { saveToHistory } from './HistoryPanel'
 import { useToast } from '../contexts/ToastContext'
+import { useAuth } from '../contexts/AuthContext'
 import { countWords } from '../utils/debounce'
 
 function TeacherMode({ onClose }) {
@@ -12,6 +14,7 @@ function TeacherMode({ onClose }) {
   const [progress, setProgress] = useState({ current: 0, total: 0 })
   const fileInputRef = useRef(null)
   const { addToast } = useToast()
+  const { recordLocalUsage } = useAuth()
 
   const addStudent = () => {
     setStudents([...students, { id: Date.now(), name: '', text: '' }])
@@ -38,32 +41,58 @@ function TeacherMode({ onClose }) {
   }
 
   const handleAnalyze = async () => {
-    const valid = students.filter((s) => {
+    // Validate all students and show specific errors
+    const issues = []
+    students.forEach((s, i) => {
       const wc = countWords(s.text)
-      return s.name.trim() && wc >= 50 && wc <= 5000
+      if (!s.name.trim()) issues.push(`الطالب ${i + 1}: الاسم مطلوب`)
+      else if (wc < 50) issues.push(`${s.name}: النص قصير (${wc} كلمة، الحد الأدنى 50)`)
+      else if (wc > 5000) issues.push(`${s.name}: النص طويل (${wc} كلمة، الحد الأقصى 5000)`)
     })
-    if (valid.length === 0) {
-      addToast('لا توجد واجبات صالحة (اسم + 50-5000 كلمة)', 'warning')
+
+    if (issues.length > 0) {
+      addToast(issues[0], 'warning', 5000)
+      return
+    }
+
+    if (students.length === 0) {
+      addToast('أضف طالباً واحداً على الأقل', 'warning')
       return
     }
 
     setLoading(true)
-    setProgress({ current: 0, total: valid.length })
+    setProgress({ current: 0, total: students.length })
     const newResults = []
 
-    for (let i = 0; i < valid.length; i++) {
+    for (let i = 0; i < students.length; i++) {
+      setProgress({ current: i + 1, total: students.length })
       try {
-        const data = await analyzeText(valid[i].text)
-        newResults.push({ name: valid[i].name, data, error: null, wordCount: countWords(valid[i].text) })
-      } catch {
-        newResults.push({ name: valid[i].name, data: null, error: 'فشل', wordCount: 0 })
+        const data = await analyzeText(students[i].text)
+        newResults.push({ name: students[i].name, data, error: null, wordCount: countWords(students[i].text) })
+
+        // Save to history
+        try {
+          saveToHistory(data, students[i].text)
+        } catch {}
+
+        recordLocalUsage()
+      } catch (err) {
+        const detail = err.response?.data?.detail
+        const msg = typeof detail === 'string' ? detail : detail?.message || 'فشل التحليل'
+        newResults.push({ name: students[i].name, data: null, error: msg, wordCount: countWords(students[i].text) })
       }
-      setProgress({ current: i + 1, total: valid.length })
     }
 
     setResults(newResults)
     setLoading(false)
-    addToast('تم تحليل جميع الواجبات', 'success')
+
+    const successCount = newResults.filter(r => r.data).length
+    const failCount = newResults.length - successCount
+    if (failCount > 0) {
+      addToast(`تم تحليل ${successCount} من ${newResults.length} (${failCount} فشل)`, 'warning')
+    } else {
+      addToast('تم تحليل جميع الواجبات', 'success')
+    }
   }
 
   const exportClassReport = () => {
@@ -124,31 +153,40 @@ function TeacherMode({ onClose }) {
           />
 
           <div className="space-y-3">
-            {students.map((s, i) => (
-              <div key={s.id} className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-3">
-                <div className="flex items-center gap-2 mb-2">
-                  <span className="text-xs text-slate-400 w-6">{i + 1}</span>
-                  <input
-                    type="text"
-                    value={s.name}
-                    onChange={(e) => updateStudent(s.id, 'name', e.target.value)}
-                    placeholder="اسم الطالب"
-                    className="flex-1 px-3 py-1.5 text-sm border border-slate-200 dark:border-slate-600 rounded-lg bg-slate-50 dark:bg-slate-700 dark:text-slate-100 outline-none focus:border-primary-400"
+            {students.map((s, i) => {
+              const wc = countWords(s.text)
+              const hasIssue = (s.name.trim() === '' && s.text.trim() !== '') || (wc > 0 && wc < 50)
+              return (
+                <div key={s.id} className={`bg-white dark:bg-slate-800 rounded-xl border p-3 ${hasIssue ? 'border-amber-300 dark:border-amber-700' : 'border-slate-200 dark:border-slate-700'}`}>
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-xs text-slate-400 w-6">{i + 1}</span>
+                    <input
+                      type="text"
+                      value={s.name}
+                      onChange={(e) => updateStudent(s.id, 'name', e.target.value)}
+                      placeholder="اسم الطالب *"
+                      className={`flex-1 px-3 py-1.5 text-sm border rounded-lg bg-slate-50 dark:bg-slate-700 dark:text-slate-100 outline-none focus:border-primary-400 ${!s.name.trim() && s.text.trim() ? 'border-amber-400' : 'border-slate-200 dark:border-slate-600'}`}
+                    />
+                    <span className={`text-xs ${wc > 0 && wc < 50 ? 'text-amber-500' : wc >= 50 ? 'text-green-500' : 'text-slate-400'}`}>{wc} كلمة</span>
+                    <button onClick={() => removeStudent(s.id)} className="text-slate-300 hover:text-red-400">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                    </button>
+                  </div>
+                  <textarea
+                    value={s.text}
+                    onChange={(e) => updateStudent(s.id, 'text', e.target.value)}
+                    placeholder="الصق نص الواجب..."
+                    className="w-full min-h-[60px] p-2 text-sm border border-slate-200 dark:border-slate-600 rounded-lg bg-slate-50 dark:bg-slate-700 dark:text-slate-100 outline-none resize-y"
+                    dir="rtl"
                   />
-                  <span className="text-xs text-slate-400">{countWords(s.text)} كلمة</span>
-                  <button onClick={() => removeStudent(s.id)} className="text-slate-300 hover:text-red-400">
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                  </button>
+                  {hasIssue && (
+                    <p className="text-[10px] text-amber-500 mt-1">
+                      {!s.name.trim() ? 'الاسم مطلوب' : `${50 - wc} كلمة إضافية مطلوبة`}
+                    </p>
+                  )}
                 </div>
-                <textarea
-                  value={s.text}
-                  onChange={(e) => updateStudent(s.id, 'text', e.target.value)}
-                  placeholder="الصق نص الواجب..."
-                  className="w-full min-h-[60px] p-2 text-sm border border-slate-200 dark:border-slate-600 rounded-lg bg-slate-50 dark:bg-slate-700 dark:text-slate-100 outline-none resize-y"
-                  dir="rtl"
-                />
-              </div>
-            ))}
+              )
+            })}
           </div>
 
           <div className="flex gap-2">
@@ -184,6 +222,15 @@ function TeacherMode({ onClose }) {
               <div><p className="text-xl font-bold text-green-500">{results.filter((r) => r.data && r.data.result.percentage < 50).length}</p><p className="text-[10px] text-slate-400">سليم</p></div>
             </div>
           </div>
+
+          {/* Failed analyses */}
+          {results.some(r => r.error) && (
+            <div className="bg-red-50 dark:bg-red-900/10 rounded-lg p-3 text-sm text-red-600 dark:text-red-400">
+              {results.filter(r => r.error).map((r, i) => (
+                <p key={i}>{r.name}: {r.error}</p>
+              ))}
+            </div>
+          )}
 
           {/* Student results sorted by score */}
           <div className="space-y-2">
