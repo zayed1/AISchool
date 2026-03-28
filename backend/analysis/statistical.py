@@ -379,6 +379,201 @@ def _score_sentence_variance(variance: float) -> float:
         return 0.15  # high variance = human
 
 
+# ========================
+# D: Advanced detection indicators
+# ========================
+
+def calc_zipf_deviation(words: list[str]) -> float:
+    """Measure how much word frequency deviates from Zipf's law.
+    Human text closely follows Zipf's law (rank × frequency ≈ constant).
+    AI text deviates because it distributes words more uniformly."""
+    if len(words) < 20:
+        return 0.0
+
+    freq = Counter(words)
+    sorted_freq = sorted(freq.values(), reverse=True)
+
+    if len(sorted_freq) < 5:
+        return 0.0
+
+    # Zipf's law: frequency of rank r ≈ C / r
+    # Calculate how well the actual distribution fits
+    top_freq = sorted_freq[0]
+    deviations = []
+    for rank, actual_freq in enumerate(sorted_freq[:min(50, len(sorted_freq))], 1):
+        expected = top_freq / rank
+        if expected > 0:
+            deviation = abs(actual_freq - expected) / expected
+            deviations.append(deviation)
+
+    return sum(deviations) / len(deviations) if deviations else 0.0
+
+
+def calc_entropy(words: list[str]) -> float:
+    """Shannon entropy of word distribution.
+    AI text tends to have lower entropy (more predictable, uniform)."""
+    if len(words) < 10:
+        return 0.0
+
+    freq = Counter(words)
+    total = len(words)
+    entropy = 0.0
+    for count in freq.values():
+        p = count / total
+        if p > 0:
+            entropy -= p * math.log2(p)
+
+    # Normalize by max possible entropy
+    max_entropy = math.log2(len(freq)) if len(freq) > 1 else 1.0
+    return entropy / max_entropy if max_entropy > 0 else 0.0
+
+
+def calc_hapax_ratio(words: list[str]) -> float:
+    """Ratio of words that appear exactly once (hapax legomena).
+    Human text has more unique one-time words. AI repeats vocabulary."""
+    if len(words) < 20:
+        return 0.0
+
+    freq = Counter(words)
+    hapax = sum(1 for count in freq.values() if count == 1)
+    return hapax / len(freq) if freq else 0.0
+
+
+def calc_mtld(words: list[str], threshold: float = 0.72) -> float:
+    """Measure of Textual Lexical Diversity — more robust than TTR.
+    Calculates how many consecutive words maintain TTR above threshold.
+    Higher MTLD = more diverse vocabulary = more likely human."""
+    if len(words) < 10:
+        return 0.0
+
+    def _mtld_forward(word_list):
+        factors = 0
+        current_types = set()
+        current_tokens = 0
+
+        for word in word_list:
+            current_types.add(word)
+            current_tokens += 1
+            ttr = len(current_types) / current_tokens
+            if ttr <= threshold:
+                factors += 1
+                current_types = set()
+                current_tokens = 0
+
+        # Partial factor
+        if current_tokens > 0:
+            ttr = len(current_types) / current_tokens
+            if ttr < 1.0:
+                factors += (1.0 - ttr) / (1.0 - threshold)
+
+        return len(word_list) / factors if factors > 0 else len(word_list)
+
+    forward = _mtld_forward(words)
+    backward = _mtld_forward(words[::-1])
+    return (forward + backward) / 2
+
+
+def calc_consistency_score(sentences: list[str]) -> float:
+    """Check if text is equally 'AI-like' in all parts.
+    AI text is uniformly styled. Human text varies across sections.
+    Returns 0-1: high = very consistent = AI-like."""
+    if len(sentences) < 6:
+        return 0.5
+
+    # Calculate local TTR for each group of 3 sentences
+    group_size = 3
+    local_scores = []
+
+    for i in range(0, len(sentences) - group_size + 1, group_size):
+        group = sentences[i:i + group_size]
+        group_words = []
+        for s in group:
+            group_words.extend(remove_tashkeel(s).split())
+        if len(group_words) >= 5:
+            local_ttr = len(set(group_words)) / len(group_words)
+            local_scores.append(local_ttr)
+
+    if len(local_scores) < 2:
+        return 0.5
+
+    # Low variance in local TTR = very consistent = AI-like
+    mean_ttr = sum(local_scores) / len(local_scores)
+    variance = sum((s - mean_ttr) ** 2 for s in local_scores) / len(local_scores)
+    std = math.sqrt(variance)
+
+    # Coefficient of variation
+    cv = std / mean_ttr if mean_ttr > 0 else 0
+    return max(0.0, min(1.0, 1.0 - cv * 3))  # invert: high consistency = high score
+
+
+def _score_zipf(deviation: float) -> float:
+    """Arabic Zipf deviation. Lower = follows Zipf = more human-like."""
+    # Arabic text typically has high deviation values (5-10)
+    # AI text has slightly lower deviation (more uniform distribution)
+    if deviation <= 4.0:
+        return 0.85  # too uniform = AI
+    elif deviation <= 5.5:
+        return 0.65
+    elif deviation <= 7.0:
+        return 0.4
+    elif deviation <= 9.0:
+        return 0.25
+    else:
+        return 0.15  # natural distribution = human
+
+
+def _score_entropy(norm_entropy: float) -> float:
+    """Arabic text entropy. AI slightly lower entropy."""
+    if norm_entropy <= 0.93:
+        return 0.8
+    elif norm_entropy <= 0.96:
+        return 0.6
+    elif norm_entropy <= 0.98:
+        return 0.4
+    else:
+        return 0.2  # very high entropy = human
+
+
+def _score_hapax(ratio: float) -> float:
+    """Hapax ratio for Arabic. AI uses fewer unique words."""
+    if ratio <= 0.75:
+        return 0.8
+    elif ratio <= 0.85:
+        return 0.6
+    elif ratio <= 0.92:
+        return 0.35
+    else:
+        return 0.15  # many unique words = human
+
+
+def _score_mtld(mtld: float) -> float:
+    """Low MTLD = repetitive vocabulary = AI."""
+    if mtld <= 30:
+        return 0.85
+    elif mtld <= 50:
+        return 0.65
+    elif mtld <= 80:
+        return 0.4
+    elif mtld <= 120:
+        return 0.25
+    else:
+        return 0.1  # very diverse = human
+
+
+def _score_consistency(score: float) -> float:
+    """High consistency = AI-like uniform style."""
+    if score >= 0.9:
+        return 0.9
+    elif score >= 0.8:
+        return 0.7
+    elif score >= 0.6:
+        return 0.45
+    elif score >= 0.4:
+        return 0.25
+    else:
+        return 0.15  # inconsistent = human
+
+
 def _score_ttr(ttr: float) -> float:
     # AI text often has HIGH TTR (formal, no repetition) OR very LOW (template)
     # Human text is moderate. Both extremes are suspicious.
@@ -477,23 +672,36 @@ def analyze(text: str) -> dict:
     pronoun_ratio = calc_pronoun_ratio(text)
     sent_variance = calc_sentence_length_variance(sentences)
 
-    # 15 indicators total — weights sum to 1.0
+    # D — Advanced detection indicators
+    zipf_dev = calc_zipf_deviation(words)
+    entropy = calc_entropy(words)
+    hapax = calc_hapax_ratio(words)
+    mtld = calc_mtld(words)
+    consistency = calc_consistency_score(sentences)
+
+    # 20 indicators total — weights sum to 1.0
     weights = {
-        "ttr": 0.10,
-        "sentence_cv": 0.10,
-        "openers": 0.09,
-        "connectors": 0.09,
-        "errors": 0.09,
-        "burstiness": 0.08,
-        "opener_diversity": 0.06,
-        "subordinate": 0.04,
-        "passive": 0.04,
-        "avg_word_length": 0.04,
-        "punctuation": 0.04,
-        "trigram_rep": 0.05,
-        "prepositions": 0.06,
-        "pronouns": 0.07,
-        "sent_variance": 0.05,
+        "ttr": 0.07,
+        "sentence_cv": 0.07,
+        "openers": 0.07,
+        "connectors": 0.07,
+        "errors": 0.07,
+        "burstiness": 0.06,
+        "opener_diversity": 0.05,
+        "subordinate": 0.03,
+        "passive": 0.03,
+        "avg_word_length": 0.03,
+        "punctuation": 0.03,
+        "trigram_rep": 0.04,
+        "prepositions": 0.04,
+        "pronouns": 0.05,
+        "sent_variance": 0.04,
+        # D — new
+        "zipf": 0.06,
+        "entropy": 0.05,
+        "hapax": 0.04,
+        "mtld": 0.05,
+        "consistency": 0.05,
     }
 
     statistical_score = (
@@ -512,6 +720,11 @@ def analyze(text: str) -> dict:
         + weights["prepositions"] * _score_preposition_density(preposition_density)
         + weights["pronouns"] * _score_pronoun_ratio(pronoun_ratio)
         + weights["sent_variance"] * _score_sentence_variance(sent_variance)
+        + weights["zipf"] * _score_zipf(zipf_dev)
+        + weights["entropy"] * _score_entropy(entropy)
+        + weights["hapax"] * _score_hapax(hapax)
+        + weights["mtld"] * _score_mtld(mtld)
+        + weights["consistency"] * _score_consistency(consistency)
     )
 
     return {
@@ -530,5 +743,10 @@ def analyze(text: str) -> dict:
         "preposition_density": round(preposition_density, 3),
         "pronoun_ratio": round(pronoun_ratio, 3),
         "sentence_variance": round(sent_variance, 1),
+        "zipf_deviation": round(zipf_dev, 3),
+        "entropy": round(entropy, 3),
+        "hapax_ratio": round(hapax, 3),
+        "mtld": round(mtld, 1),
+        "consistency": round(consistency, 3),
         "statistical_score": round(statistical_score, 2),
     }

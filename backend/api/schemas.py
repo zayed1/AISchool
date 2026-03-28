@@ -53,6 +53,11 @@ class StatisticalResult(BaseModel):
     preposition_density: float = 0.0
     pronoun_ratio: float = 0.0
     sentence_variance: float = 0.0
+    zipf_deviation: float = 0.0
+    entropy: float = 0.0
+    hapax_ratio: float = 0.0
+    mtld: float = 0.0
+    consistency: float = 0.0
     statistical_score: float
 
 
